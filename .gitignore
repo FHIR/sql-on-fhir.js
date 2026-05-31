@@ -1,0 +1,14 @@
+.DS_Store
+Thumbs.db
+node_modules
+
+# sof-js
+sof-js/bun.lockb
+sof-js/db.sqlite
+sof-js/db.sqlite-journal
+
+# test_report
+test_report/public/build/
+test_report/public/tests.json
+test_report/public/test-results.json
+test_report/bun.lockb

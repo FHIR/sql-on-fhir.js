@@ -1,0 +1,95 @@
+name: Run FHIR Core SQL on FHIR Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      fhir_core_branch:
+        description: "Branch of hapifhir/org.hl7.fhir.core to test"
+        required: true
+        default: "master"
+  schedule:
+    # Run weekly on Sunday at 03:17 UTC. The offbeat minute and hour avoid
+    # GitHub's scheduling backlog at the top of common hours.
+    - cron: "17 3 * * 0"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    name: Run FHIR Core tests and build report
+    steps:
+      # Checkout FHIR Core
+      - name: Checkout FHIR Core
+        uses: actions/checkout@v4
+        with:
+          repository: hapifhir/org.hl7.fhir.core
+          ref: ${{ github.event.inputs.fhir_core_branch || 'master' }}
+          path: fhir-core
+
+      # Install Java
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: 17
+          cache: maven
+
+      # Build the r5 module of FHIR Core (and its dependencies)
+      - name: Build r5 module and dependencies
+        working-directory: fhir-core
+        run: mvn install -pl org.hl7.fhir.r5 -am -DskipTests
+
+      # Run the SQL on FHIR compliance tests in FHIR Core, producing
+      # sof-test-report.json
+      - name: Run SQL on FHIR tests
+        working-directory: fhir-core
+        run: mvn surefire:test@sof-compliance-test -pl org.hl7.fhir.r5
+
+      # Checkout this repository (test report sources)
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      # Set up Bun for JavaScript dependencies
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      # Set up Node.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # Build test report viewer site
+      - name: Build test report
+        working-directory: tooling/test_report
+        run: |
+          bun install
+          bun run prepare
+          bun run build
+
+      # Assemble the test report site and drop the FHIR Core results JSON in
+      # alongside it so the viewer can fetch it
+      - name: Assemble extra content
+        run: |
+          mkdir -p extra
+          cp -R tooling/test_report/public/* extra/
+          cp fhir-core/org.hl7.fhir.r5/target/sof-test-report.json extra/hl7-fhir-core-test-results.json
+
+      - name: Upload extra content
+        uses: actions/upload-artifact@v4
+        with:
+          name: extra
+          path: extra
+
+      # TODO: Resolve how the assembled `extra/` content (test report, playground
+      # and FHIR Core results) is published to sql-on-fhir.org/extra/. The
+      # original workflow committed the results to a `releases` branch in the IG
+      # repository and deployed the combined site to GitHub Pages. With the IG in
+      # a separate repository, the publishing topology needs to be
+      # re-established before a deploy step can be added here.

@@ -1,0 +1,15 @@
+{
+  "name": "sql-on-fhir-js",
+  "version": "2.0.0",
+  "description": "Reference implementation, test suite and test report site for the SQL on FHIR v2.0 specification",
+  "private": true,
+  "scripts": {
+    "test": "cd sof-js && bun test",
+    "validate": "cd sof-js && bun run validate",
+    "check-fmt": "cd sof-js && bun run check-fmt",
+    "fmt": "cd sof-js && bun run fmt",
+    "build:report": "cd test_report && bun run prepare && bun run build"
+  },
+  "author": "John Grimes",
+  "license": "Apache-2.0"
+}

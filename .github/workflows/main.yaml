@@ -1,0 +1,62 @@
+name: build
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Validate reference implementation and build test report
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Set up Bun for JavaScript dependencies
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      # Set up Node.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      # Install dependencies for sof-js
+      - name: Install dependencies
+        working-directory: sof-js
+        run: bun install
+
+      # Run code formatting checks
+      - name: Check formatting
+        working-directory: sof-js
+        run: bun run check-fmt
+
+      # Validate JSON tests
+      - name: Validate JSON tests
+        working-directory: sof-js
+        run: bun run validate
+
+      # Run tests
+      - name: Run tests
+        working-directory: sof-js
+        run: bun run test
+        continue-on-error: true
+
+      # Build test report viewer site (includes the playground)
+      - name: Build test report
+        working-directory: test_report
+        run: |
+          bun install
+          bun run prepare
+          bun run build
+
+      # TODO: Resolve how the built test report and playground are published to
+      # sql-on-fhir.org/extra/. The original workflow merged this output into a
+      # `releases` branch alongside the IG and deployed the whole site to GitHub
+      # Pages from the IG repository. The IG now lives in a separate repository,
+      # so the apex-domain publishing topology needs to be re-established before
+      # a deploy step can be added here.
