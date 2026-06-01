@@ -13,6 +13,19 @@ This repository holds the tooling and conformance material for the
 The specification itself (the HL7 FHIR Implementation Guide) lives in a separate
 repository: [FHIR/sql-on-fhir](https://github.com/FHIR/sql-on-fhir).
 
+## FHIR Foundation Project Statement
+
+- Maintainers: TBC at next SQL on FHIR meeting.
+- Issues / Discussion:
+  [analytics on FHIR@chat.fhir.org](https://chat.fhir.org/#narrow/stream/179219-analytics-on-FHIR).
+- License: MIT (TBC at next SQL on FHIR meeting).
+- Contribution Policy: [CONTRIBUTING.md](CONTRIBUTING.md) (to be ratified at next
+  SQL on FHIR meeting).
+- Security Information: Security advisories will be published at the
+  [GitHub Security Advisories](https://github.com/FHIR/sql-on-fhir.js/security/advisories)
+  page, and you can also
+  [report a vulnerability](https://github.com/FHIR/sql-on-fhir.js/security/advisories/new).
+
 ## Getting started
 
 The reference implementation and validator use [Bun](https://bun.sh/).
