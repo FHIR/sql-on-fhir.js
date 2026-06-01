@@ -1,0 +1,65 @@
+# Reusable workflow that publishes the apex site to GitHub Pages. Callers build
+# the test report / playground, upload it as an artifact, then invoke this
+# workflow. It overlays that artifact onto the persistent releases branch (which
+# holds the published IG snapshot and registry files) and deploys the combined
+# tree. Author: John Grimes.
+name: Deploy to GitHub Pages
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: "Name of the artifact holding the extra/ content to overlay onto the releases branch."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Overlay extra content and deploy to GitHub Pages
+    # The github-pages environment is required by deploy-pages.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # Check out the releases branch as the persistent base content. It holds
+      # the published IG snapshot, registry files and the FHIR Core results
+      # JSON; we overlay the freshly built test report on top of it.
+      - name: Checkout base content (releases branch)
+        uses: actions/checkout@v4
+        with:
+          ref: releases
+          path: base_content
+
+      # Download the built extra/ content produced by the calling workflow.
+      - name: Download built extra content
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: extra_content
+
+      # Overlay the built content into base_content/extra/. Files already in the
+      # releases branch (such as hl7-fhir-core-test-results.json) are preserved
+      # unless the artifact overwrites them.
+      - name: Overlay extra content onto base content
+        run: |
+          mkdir -p base_content/extra
+          cp -R extra_content/* base_content/extra/
+
+      # Configure, upload and deploy the combined tree to GitHub Pages.
+      - name: Configure Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: base_content
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
