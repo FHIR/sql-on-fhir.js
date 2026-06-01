@@ -81,15 +81,43 @@ jobs:
           cp -R tooling/test_report/public/* extra/
           cp fhir-core/org.hl7.fhir.r5/target/sof-test-report.json extra/hl7-fhir-core-test-results.json
 
-      - name: Upload extra content
+      # Check out the releases branch and commit the fresh results JSON back to
+      # it. The releases branch is the persistent source of truth, so the deploy
+      # job overlays the rebuilt report onto these committed results rather than
+      # the stale copy already in releases.
+      - name: Checkout releases branch
+        uses: actions/checkout@v4
+        with:
+          ref: releases
+          path: releases
+
+      - name: Commit FHIR Core results to releases
+        run: |
+          mkdir -p releases/extra
+          cp extra/hl7-fhir-core-test-results.json releases/extra/hl7-fhir-core-test-results.json
+          cd releases
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add extra/hl7-fhir-core-test-results.json
+          if git diff --cached --quiet; then
+            echo "No change to FHIR Core results; skipping commit."
+          else
+            git commit -m "Update FHIR Core SQL on FHIR test results"
+            git push
+          fi
+
+      # Upload the assembled extra/ content (rebuilt report plus fresh results
+      # JSON) for the deploy job to overlay onto the releases branch.
+      - name: Upload built extra content
         uses: actions/upload-artifact@v4
         with:
           name: extra
           path: extra
 
-      # TODO: Resolve how the assembled `extra/` content (test report, playground
-      # and FHIR Core results) is published to sql-on-fhir.org/extra/. The
-      # original workflow committed the results to a `releases` branch in the IG
-      # repository and deployed the combined site to GitHub Pages. With the IG in
-      # a separate repository, the publishing topology needs to be
-      # re-established before a deploy step can be added here.
+  # Deploy the combined site so the live report reflects the new results. Runs
+  # whether or not the JSON changed, since the rebuilt report may differ.
+  deploy:
+    needs: run-tests
+    uses: ./.github/workflows/deploy.yaml
+    with:
+      artifact-name: extra
