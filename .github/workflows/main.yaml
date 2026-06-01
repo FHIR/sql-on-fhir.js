@@ -10,53 +10,90 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    name: Validate reference implementation and build test report
+    name: Validate reference implementation, build test report and deploy
+    # The github-pages environment is required by deploy-pages. The deploy steps
+    # below are guarded so a deploy only happens on the main branch; on other
+    # branches the job acts as CI only.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
+      # Check out the releases branch as the persistent base content. It holds
+      # the published IG snapshot, registry files and the existing extra/
+      # content; we overlay a freshly built test report on top of it.
+      - name: Checkout base content (releases branch)
         uses: actions/checkout@v4
+        with:
+          ref: releases
+          path: base_content
 
-      # Set up Bun for JavaScript dependencies
+      # Check out the branch being built (the test report and playground
+      # sources live here).
+      - name: Checkout current branch
+        uses: actions/checkout@v4
+        with:
+          path: current_branch
+
+      # Set up Bun for JavaScript dependencies.
       - uses: oven-sh/setup-bun@v1
         with:
           bun-version: latest
 
-      # Set up Node.js
+      # Set up Node.js.
       - uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # Install dependencies for sof-js
+      # Install dependencies for sof-js.
       - name: Install dependencies
-        working-directory: sof-js
+        working-directory: current_branch/sof-js
         run: bun install
 
-      # Run code formatting checks
+      # Run code formatting checks.
       - name: Check formatting
-        working-directory: sof-js
+        working-directory: current_branch/sof-js
         run: bun run check-fmt
 
-      # Validate JSON tests
+      # Validate JSON tests.
       - name: Validate JSON tests
-        working-directory: sof-js
+        working-directory: current_branch/sof-js
         run: bun run validate
 
-      # Run tests
+      # Run tests.
       - name: Run tests
-        working-directory: sof-js
+        working-directory: current_branch/sof-js
         run: bun run test
         continue-on-error: true
 
-      # Build test report viewer site (includes the playground)
+      # Build test report viewer site (includes the playground).
       - name: Build test report
-        working-directory: test_report
+        working-directory: current_branch/test_report
         run: |
           bun install
           bun run prepare
           bun run build
 
-      # TODO: Resolve how the built test report and playground are published to
-      # sql-on-fhir.org/extra/. The original workflow merged this output into a
-      # `releases` branch alongside the IG and deployed the whole site to GitHub
-      # Pages from the IG repository. The IG now lives in a separate repository,
-      # so the apex-domain publishing topology needs to be re-established before
-      # a deploy step can be added here.
+      # Overlay the freshly built test report onto the base content. Copying
+      # into base_content/extra/ leaves the existing
+      # base_content/extra/hl7-fhir-core-test-results.json in place.
+      - name: Assemble extra content
+        run: |
+          mkdir -p base_content/extra
+          cp -R current_branch/test_report/public/* base_content/extra/
+
+      # Configure, upload and deploy to GitHub Pages. These steps only run on
+      # the main branch so feature-branch builds do not publish.
+      - name: Configure Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: base_content
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: github.ref == 'refs/heads/main'
+        uses: actions/deploy-pages@v4
