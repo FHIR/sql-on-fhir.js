@@ -1,4 +1,4 @@
-# SQL on FHIR (tooling)
+# SQL on FHIR.js
 
 This repository holds the tooling and conformance material for the
 [SQL on FHIR](https://sql-on-fhir.org/) specification:
