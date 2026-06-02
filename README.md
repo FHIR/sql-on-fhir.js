@@ -1,7 +1,7 @@
 # SQL on FHIR (tooling)
 
 This repository holds the tooling and conformance material for the
-[SQL on FHIR v2.0](https://sql-on-fhir.org/) specification:
+[SQL on FHIR](https://sql-on-fhir.org/) specification:
 
 - `sof-js/` - the JavaScript reference implementation (engine, validator and
   server).
