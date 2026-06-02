@@ -24,7 +24,7 @@ jobs:
     steps:
       # Checkout FHIR Core
       - name: Checkout FHIR Core
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: hapifhir/org.hl7.fhir.core
           ref: ${{ github.event.inputs.fhir_core_branch || 'master' }}
@@ -32,7 +32,7 @@ jobs:
 
       # Install Java
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: "temurin"
           java-version: 17
@@ -51,17 +51,17 @@ jobs:
 
       # Checkout this repository (test report sources)
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: tooling
 
       # Set up Bun for JavaScript dependencies
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       # Set up Node.js
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 18
 
@@ -86,7 +86,7 @@ jobs:
       # job overlays the rebuilt report onto these committed results rather than
       # the stale copy already in releases.
       - name: Checkout releases branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: releases
           path: releases
@@ -109,7 +109,7 @@ jobs:
       # Upload the assembled extra/ content (rebuilt report plus fresh results
       # JSON) for the deploy job to overlay onto the releases branch.
       - name: Upload built extra content
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: extra
           path: extra

@@ -15,15 +15,15 @@ jobs:
       # Check out the branch being built (the test report and playground
       # sources live here).
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Set up Bun for JavaScript dependencies.
-      - uses: oven-sh/setup-bun@v1
+      - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       # Set up Node.js.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 18
 
@@ -60,7 +60,7 @@ jobs:
       # releases branch. Only uploaded on main, where the deploy job runs.
       - name: Upload built extra content
         if: github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: extra
           path: test_report/public
