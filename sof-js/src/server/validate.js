@@ -1,8 +1,7 @@
-import { search } from './db.js'
 import { errors as verrors } from '../validate.js'
 import { layout } from './ui.js'
 import { read } from './db.js'
-import { renderOperationDefinition, runOperation } from './utils.js'
+import { renderOperationDefinition } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 
 const defaultResource = {
