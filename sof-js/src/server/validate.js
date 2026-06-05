@@ -66,11 +66,53 @@ function validateViewDefinition(resource) {
   return verrors(resource)
 }
 
+/**
+ * Convert a list of AJV validation errors to FHIR OperationOutcome issues.
+ *
+ * Each AJV error is mapped to an issue with severity "error", code
+ * "invariant", a human-readable diagnostics message, and an expression that
+ * identifies the offending path when available.
+ *
+ * @param {Array|null} ajvErrors - Array of AJV error objects, or null when
+ *   the schema compiled but produced no errors.
+ * @returns {Array<{severity: string, code: string, diagnostics: string,
+ *   expression?: string}>} FHIR OperationOutcome issue entries.
+ */
+function ajvErrorsToIssues(ajvErrors) {
+  if (!ajvErrors || ajvErrors.length === 0) return []
+  return ajvErrors.map((err) => {
+    const issue = {
+      severity: 'error',
+      code: 'invariant',
+      diagnostics: err.message ?? 'Validation error',
+    }
+    if (err.instancePath) {
+      issue.expression = err.instancePath
+    }
+    return issue
+  })
+}
+
+/**
+ * Validate a ViewDefinition resource posted as JSON and return an
+ * OperationOutcome.
+ *
+ * Replaces the previous implementation which called req.body.json()
+ * (incorrect under Express, where req.body is already parsed) and echoed the
+ * resource back without validating it.
+ *
+ * @param {object} req - Express request.  Body must be a ViewDefinition
+ *   resource.
+ * @param {object} res - Express response.
+ * @returns {Promise<void>}
+ */
 export async function postValidateEndpoint(req, res) {
-  const resource = await req.body.json()
+  const resource = req.body
+  const ajvErrors = validateViewDefinition(resource)
+  const issues = ajvErrorsToIssues(ajvErrors)
+  const outcome = { resourceType: 'OperationOutcome', issue: issues }
   res.setHeader('Content-Type', 'application/fhir+json')
-  res.send(JSON.stringify(resource, null, 2))
-  res.end()
+  res.status(200).json(outcome)
 }
 
 export async function postValidateFormEndpoint(req, res) {
