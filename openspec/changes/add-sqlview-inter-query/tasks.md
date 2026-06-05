@@ -13,23 +13,23 @@
 
 ## 3. Composition tests (TDD)
 
-- [ ] 3.1 Add `tests/server/sql.test.js` cases: SQLQuery -> SQLView -> ViewDefinition returns expected rows (stored Library and inline `queryResource`)
-- [ ] 3.2 Add a case for an SQLQuery that joins an SQLView and a ViewDefinition
-- [ ] 3.3 Add a case for running an SQLView directly via `$sqlquery-run`
-- [ ] 3.4 Add a depth-3 case (SQLQuery -> SQLView -> SQLView -> ViewDefinition) to exercise the "arbitrary depth" requirement, not just a single view level
-- [ ] 3.5 Add a case for an SQLView whose result is empty: the referencing query still resolves the table and returns zero rows (see design decision on column derivation for empty views)
-- [ ] 3.6 Add error cases: dependency cycle -> 422 naming the cycle; Library dependency of `type` `sql-query` -> 422; Library dependency declaring parameters -> 422; unresolvable dependency -> 404. Assert the unresolvable-dependency diagnostic still contains the word "ViewDefinition" so the existing 404 test continues to pass
-- [ ] 3.7 Run the composition tests and confirm they fail only on assertions
+- [x] 3.1 Add `tests/server/sql.test.js` cases: SQLQuery -> SQLView -> ViewDefinition returns expected rows (stored Library and inline `queryResource`)
+- [x] 3.2 Add a case for an SQLQuery that joins an SQLView and a ViewDefinition
+- [x] 3.3 Add a case for running an SQLView directly via `$sqlquery-run`
+- [x] 3.4 Add a depth-3 case (SQLQuery -> SQLView -> SQLView -> ViewDefinition) to exercise the "arbitrary depth" requirement, not just a single view level
+- [x] 3.5 Add a case for an SQLView whose result is empty: the referencing query still resolves the table and returns zero rows (see design decision on column derivation for empty views)
+- [x] 3.6 Add error cases: dependency cycle -> 422 naming the cycle; Library dependency of `type` `sql-query` -> 422; Library dependency declaring parameters -> 422; unresolvable dependency -> 404. Assert the unresolvable-dependency diagnostic still contains the word "ViewDefinition" so the existing 404 test continues to pass
+- [x] 3.7 Run the composition tests and confirm they fail only on assertions
 
 ## 4. Composition implementation
 
-- [ ] 4.1 Add a Library resolver (by `url`, then trailing id segment) and `resolveDependency(config, resource)` that tries ViewDefinition first, then Library
-- [ ] 4.2 Extract `runLibraryToRows(library, config, stack)`: cycle-check, validate (single source of truth for the `sql-view`-type and no-parameters checks), own in-memory DB, recurse via `materialiseDependencies`, `extractSql`, run unbound, return rows and column names, close DB
-- [ ] 4.3 Rework `materialiseDependencies(library, config, db, stack)` to branch on dependency kind: ViewDefinition (existing path, declared column types) vs SQLView Library (run recursively). Derive the materialised table's columns from the view's result-set column names, not only from rows, so an empty view still creates a usable table (see design decision); do NOT add inferred SQLView columns to `labelToColumns` - leave `_format=fhir` typing to the existing runtime `typeof()` probe in `resolveColumnFhirTypes`
-- [ ] 4.4 Add cycle detection via a path `Set` of canonical keys, returning 422 with the cycle path
+- [x] 4.1 Add a Library resolver (by `url`, then trailing id segment) and `resolveDependency(config, resource)` that tries ViewDefinition first, then Library
+- [x] 4.2 Extract `runLibraryToRows(library, config, stack)`: cycle-check, validate (single source of truth for the `sql-view`-type and no-parameters checks), own in-memory DB, recurse via `materialiseDependencies`, `extractSql`, run unbound, return rows and column names, close DB
+- [x] 4.3 Rework `materialiseDependencies(library, config, db, stack)` to branch on dependency kind: ViewDefinition (existing path, declared column types) vs SQLView Library (run recursively). Derive the materialised table's columns from the view's result-set column names, not only from rows, so an empty view still creates a usable table (see design decision); do NOT add inferred SQLView columns to `labelToColumns` - leave `_format=fhir` typing to the existing runtime `typeof()` probe in `resolveColumnFhirTypes`
+- [x] 4.4 Add cycle detection via a path `Set` of canonical keys, returning 422 with the cycle path
 - [x] 4.5 Wire pre-flight `validateSqlLibrary` into `$sqlquery-run` so error issues short-circuit to a 422 `OperationOutcome` before execution. Verify the new gate does not change the outcome of any existing fixture (all are conformant): unresolvable deps must yield a warning (not error) so the 404 execution path is still reached
-- [ ] 4.6 Allow an `sql-view` Library as a top-level `$sqlquery-run` target
-- [ ] 4.7 Run the composition tests and confirm they pass
+- [x] 4.6 Allow an `sql-view` Library as a top-level `$sqlquery-run` target
+- [x] 4.7 Run the composition tests and confirm they pass
 
 ## 5. Metadata examples
 
@@ -40,7 +40,7 @@
 
 ## 6. UI
 
-- [ ] 6.1 Add a Type column/badge (SQL Query vs SQL View) to the Library list and correct the list/index headings
+- [x] 6.1 Add a Type column/badge (SQL Query vs SQL View) to the Library list and correct the list/index headings
 - [ ] 6.2 Render the resolved `relatedArtifact` dependencies (label, kind, target) on the `$sqlquery-run` instance form, including an unresolved-dependency state
 - [x] 6.3 Confirm the Library `$validate` form renders and reports issues (links from the Library area)
 

@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "patient-count-from-view",
+  "url": "http://myig.org/Library/patient-count-from-view",
+  "name": "PatientCountFromView",
+  "title": "Patient Count from View",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "Counts rows from the patient-demographics-view SQLView, demonstrating query-over-view composition.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/Library/patient-demographics-view",
+      "label": "demo"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT COUNT(*) AS total FROM demo"
+        }
+      ]
+    }
+  ]
+}

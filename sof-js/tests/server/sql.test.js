@@ -504,6 +504,507 @@ describe('Library $validate endpoint', () => {
   })
 })
 
+// ============================================================================
+// SQLQuery / SQLView composition tests
+// ============================================================================
+
+describe('SQLQuery -> SQLView composition', () => {
+  // 3.1 - SQLQuery -> SQLView -> ViewDefinition (inline top-level query)
+  test('inline SQLQuery referencing a stored SQLView returns expected rows', async () => {
+    // The stored patient-demographics-view SQLView wraps the patient_demographics
+    // ViewDefinition. This inline SQLQuery counts rows from that view.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/patient-demographics-view',
+          label: 'demo',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT COUNT(*) AS cnt FROM demo',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBe(1)
+    expect(rows[0].cnt).toBeGreaterThan(0)
+  })
+
+  // 3.1 - stored SQLQuery referencing a stored SQLView (via instance route)
+  test('stored patient-count-from-view SQLQuery via instance route returns rows', async () => {
+    // Run the stored patient-count-from-view Library (added in metadata as part of
+    // the composition feature) via the instance route.
+    const res = await postSqlQueryRun(
+      '/Library/patient-count-from-view/$sqlquery-run',
+      paramsBody([{ name: '_format', valueCode: 'json' }]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBe(1)
+    expect(rows[0].total).toBeGreaterThan(0)
+  })
+
+  // 3.2 - SQLQuery joins an SQLView and a ViewDefinition
+  test('inline SQLQuery joining an SQLView and a ViewDefinition returns joined rows', async () => {
+    // Join the patient_demographics_view SQLView (columns: id, date_of_birth, gender)
+    // with the patient_multiple_birth ViewDefinition (columns: id, multiple_birth),
+    // which share the patient id column.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/patient-demographics-view',
+          label: 'demo',
+        },
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/ViewDefinition/patient_multiple_birth',
+          label: 'births',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString:
+                'SELECT demo.id, demo.gender, births.multiple_birth ' +
+                'FROM demo JOIN births ON demo.id = births.id',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    // Each row must contain columns from both sources.
+    expect(rows[0]).toHaveProperty('id')
+    expect(rows[0]).toHaveProperty('gender')
+    expect(rows[0]).toHaveProperty('multiple_birth')
+  })
+
+  // 3.3 - Run an SQLView directly as the top-level target
+  test('inline SQLView supplied as top-level target returns its rows', async () => {
+    // Supply the SQLView itself as the queryResource. The server should execute
+    // it directly with no parameter bindings and return the view output.
+    const view = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-view' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/ViewDefinition/patient_demographics',
+          label: 'patient_demographics',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT id, gender FROM patient_demographics',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: view },
+      ]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows[0]).toHaveProperty('id')
+    expect(rows[0]).toHaveProperty('gender')
+  })
+
+  // 3.3 - Run a stored SQLView via the instance route
+  test('stored SQLView via instance route returns its rows', async () => {
+    const res = await postSqlQueryRun(
+      '/Library/patient-demographics-view/$sqlquery-run',
+      paramsBody([{ name: '_format', valueCode: 'json' }]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+  })
+
+  // 3.4 - Depth-3: SQLQuery -> SQLView A -> SQLView B -> ViewDefinition
+  test('depth-3 composition (query -> view -> view -> ViewDefinition) returns expected rows', async () => {
+    // The stored female-demographics-view depends on patient-demographics-view,
+    // which in turn depends on the patient_demographics ViewDefinition. This
+    // inline query counts rows via the three-level chain.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/female-demographics-view',
+          label: 'females',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT COUNT(*) AS cnt FROM females',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBe(1)
+    // The count must be a positive integer, confirming rows propagated through
+    // the three-level chain.  A broken chain (empty intermediate table) would
+    // return 0, which would not satisfy this assertion.
+    expect(typeof rows[0].cnt).toBe('number')
+    expect(rows[0].cnt).toBeGreaterThan(0)
+  })
+
+  // 3.5 - SQLView with empty result: virtual table is still created, zero rows returned
+  test('SQLView that returns no rows still creates the virtual table and referencing query returns zero rows', async () => {
+    // This inline SQLView produces no rows (impossible gender filter).  The
+    // referencing query should still resolve the table and return zero rows
+    // without error, confirming column derivation does not require rows.
+    const emptyView = {
+      resourceType: 'Library',
+      id: 'empty-view-inline',
+      url: 'http://myig.org/Library/empty-view-inline',
+      status: 'active',
+      type: { coding: [{ code: 'sql-view' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/ViewDefinition/patient_demographics',
+          label: 'patient_demographics',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              // This condition can never be satisfied, so no rows are returned.
+              valueString: 'SELECT id, gender FROM patient_demographics WHERE 1 = 0',
+            },
+          ],
+        },
+      ],
+    }
+    // We need to store this view so it can be resolved as a dependency. Use a
+    // trick: store it via the server by submitting it as a stored Library. But
+    // since we cannot POST to /Library in this server, use it inline at the top
+    // level first to confirm it runs, then reference it from a separate query.
+    // For the column-derivation test, we run the SQLView directly.
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: emptyView },
+      ]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBe(0)
+  })
+
+  // 3.5 continued - empty SQLView used as dependency in another query returns zero rows
+  test('stored SQLView with empty result used as dependency returns zero rows without error', async () => {
+    // The stored empty-result-view SQLView returns no rows. The referencing
+    // inline SQLQuery should still resolve the virtual table and return zero rows.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/empty-result-view',
+          label: 'emp',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT id, gender FROM emp',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBe(0)
+  })
+})
+
+describe('SQLQuery composition error cases', () => {
+  // 3.6 - Dependency cycle returns 422 naming the cycle
+  test('dependency cycle returns 422 with OperationOutcome naming the cycle', async () => {
+    // The stored cycle-view-a depends on cycle-view-b, which depends back on
+    // cycle-view-a, forming a cycle. Running a query that depends on
+    // cycle-view-a must be rejected with a 422 that names the cycle.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/cycle-view-a',
+          label: 'cycled',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT * FROM cycled',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+    // The diagnostic message must describe the cycle.
+    expect(body.issue[0].diagnostics).toMatch(/cycle/i)
+  })
+
+  // 3.6 - Library dependency of type sql-query returns 422
+  test('dependency that resolves to an sql-query Library returns 422', async () => {
+    // The stored sql-query-dep Library has type sql-query. Using it as a
+    // relatedArtifact dependency is not permitted and must yield 422.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/sql-query-dep',
+          label: 'dep',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT * FROM dep',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+  })
+
+  // 3.6 - Library dependency declaring parameters returns 422
+  test('dependency that resolves to a parameterised SQLView Library returns 422', async () => {
+    // The stored parameterised-view Library declares a parameter. Using it as a
+    // dependency is forbidden and must yield 422.
+    const query = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/Library/parameterised-view',
+          label: 'pv',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT * FROM pv',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: query },
+      ]),
+    )
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+  })
+
+  // 3.6 - Unresolvable dependency returns 404; diagnostic must contain "ViewDefinition"
+  test('unresolvable dependency still returns 404 with diagnostic containing "ViewDefinition"', async () => {
+    // The existing test at the bottom of the $sqlquery-run suite already covers
+    // this path; this duplicate ensures it is still respected under the new
+    // resolveDependency routing.
+    const inline = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/ViewDefinition/no_such_view',
+          label: 'no_such_view',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT 1 AS one FROM no_such_view',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: inline },
+      ]),
+    )
+
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+    expect(body.issue[0].code).toBe('not-found')
+    // The diagnostic must still contain "ViewDefinition" so the original test
+    // contract is preserved.
+    expect(body.issue[0].diagnostics).toContain('ViewDefinition')
+  })
+})
+
+// 6.1 - Library list type indication
+describe('Library list', () => {
+  test('GET /Library distinguishes SQL Query and SQL View types in the HTML list', async () => {
+    // The Library list page must display a Type column (or badge) so that each
+    // row is identifiable as an SQL Query or SQL View.  The stored metadata
+    // includes at least one of each type (patient-count is sql-query,
+    // patient-demographics-view is sql-view).
+    const res = await fetch(`${base}/Library`, {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    // Both type labels must appear somewhere in the rendered HTML.
+    expect(html).toContain('SQL Query')
+    expect(html).toContain('SQL View')
+    // The table must include a Type heading so the column is labelled.
+    expect(html).toContain('Type')
+  })
+})
+
 // Helper builders for inline Library resources used by tests.
 
 function inlinePatientCountLibrary() {

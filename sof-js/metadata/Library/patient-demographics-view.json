@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "patient-demographics-view",
+  "url": "http://myig.org/Library/patient-demographics-view",
+  "name": "PatientDemographicsView",
+  "title": "Patient Demographics View",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "An SQLView that selects all rows from the patient_demographics ViewDefinition.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_demographics",
+      "label": "patient_demographics"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT id, date_of_birth, gender FROM patient_demographics"
+        }
+      ]
+    }
+  ]
+}

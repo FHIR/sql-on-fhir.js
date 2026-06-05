@@ -157,6 +157,10 @@ async function resolveLibrary({ id, queryReference, queryResource, config }) {
 /**
  * Resolve a ViewDefinition referenced from a Library.relatedArtifact entry.
  * Tries an exact url match first, then falls back to id by trailing segment.
+ *
+ * @param {object} config - Server config.
+ * @param {string} ref - Canonical URL or reference string to resolve.
+ * @returns {Promise<object|null>} the ViewDefinition resource, or null.
  */
 async function resolveViewDefinition(config, ref) {
   const all = await search(config, 'ViewDefinition', 1000)
@@ -166,6 +170,54 @@ async function resolveViewDefinition(config, ref) {
   const byId = all.find((v) => v.id === segment)
   if (byId) return byId
   return null
+}
+
+/**
+ * Resolve a Library referenced from a relatedArtifact entry.
+ * Tries an exact url match first, then falls back to id by trailing segment.
+ *
+ * @param {object} config - Server config.
+ * @param {string} ref - Canonical URL or reference string to resolve.
+ * @returns {Promise<object|null>} the Library resource, or null.
+ */
+async function resolveLibraryByRef(config, ref) {
+  const all = await search(config, 'Library', 1000)
+  const byUrl = all.find((l) => l.url === ref)
+  if (byUrl) return byUrl
+  const segment = (ref || '').split('/').pop()
+  const byId = all.find((l) => l.id === segment)
+  if (byId) return byId
+  return null
+}
+
+/**
+ * Resolve a dependency reference to its resource and kind.
+ * ViewDefinition takes precedence over Library when both could match.
+ *
+ * @param {object} config - Server config.
+ * @param {string} ref - Canonical URL or reference string.
+ * @returns {Promise<{kind: 'ViewDefinition'|'Library', resource: object}|null>} resolved dependency or null.
+ */
+async function resolveDependency(config, ref) {
+  const vd = await resolveViewDefinition(config, ref)
+  if (vd) return { kind: 'ViewDefinition', resource: vd }
+  const lib = await resolveLibraryByRef(config, ref)
+  if (lib) return { kind: 'Library', resource: lib }
+  return null
+}
+
+/**
+ * Derive a canonical key for a Library for use in cycle detection.
+ * Uses `url` when present, else `Library/<id>`, else a sentinel string for
+ * inline resources without identity.
+ *
+ * @param {object} library - Library resource.
+ * @returns {string} a string key unique to this library's identity.
+ */
+function canonicalKey(library) {
+  if (library.url) return library.url
+  if (library.id) return `Library/${library.id}`
+  return '__inline__'
 }
 
 // Pull rows for a ViewDefinition by reading its source resources and
@@ -228,11 +280,126 @@ function dbClose(db) {
 }
 
 /**
- * Materialise each `relatedArtifact[type=depends-on]` ViewDefinition into a
- * table on the supplied SQLite connection. Returns a map of label → column
- * metadata used later for the `_format=fhir` response.
+ * Execute an SQLView Library in its own in-memory SQLite database and return
+ * the result rows together with the derived column names.
+ *
+ * Performs cycle detection via the `stack` Set of canonical keys already on
+ * the current resolution path. If the library's canonical key is already in
+ * the stack a 422 is thrown naming the cycle.
+ *
+ * Validates that the library is of type `sql-view` with no parameters before
+ * executing, matching the dependency constraints defined by the spec.
+ *
+ * @param {object} library - SQLView Library resource to execute.
+ * @param {object} config - Server config.
+ * @param {Set<string>} stack - Canonical keys of libraries currently on the resolution path.
+ * @returns {Promise<{rows: object[], colNames: string[]}>} result rows and column names.
+ * @throws {SqlQueryRunError} on type mismatch, parameter presence, cycle, or SQL failure.
  */
-async function materialiseDependencies(library, config, queryDb) {
+async function runLibraryToRows(library, config, stack) {
+  // Extract the type code, checking it is sql-view and has no parameters.
+  const typeCoding = library?.type?.coding
+  const typeCode = Array.isArray(typeCoding)
+    ? (typeCoding.find((c) => typeof c.code === 'string') || {}).code
+    : undefined
+  if (typeCode !== 'sql-view') {
+    throw new SqlQueryRunError(
+      422,
+      'invalid',
+      `Library dependency must be of type 'sql-view'; got '${typeCode ?? '(none)'}'.`,
+    )
+  }
+  if (Array.isArray(library.parameter) && library.parameter.length > 0) {
+    throw new SqlQueryRunError(
+      422,
+      'invalid',
+      `Library dependency '${library.url || library.id}' declares parameters; parameterised SQLViews cannot be used as dependencies.`,
+    )
+  }
+
+  // Cycle detection: check if this library is already on the resolution path.
+  const key = canonicalKey(library)
+  if (stack.has(key)) {
+    const pathParts = [...stack, key]
+    throw new SqlQueryRunError(422, 'processing', `Dependency cycle detected: ${pathParts.join(' -> ')}`)
+  }
+
+  // Build a child stack including this library's key.
+  const childStack = new Set(stack)
+  childStack.add(key)
+
+  // Execute the SQLView in its own in-memory database.
+  const viewDb = new sqlite3.Database(':memory:')
+  try {
+    // Materialise this view's own dependencies (ViewDefinitions or nested SQLViews).
+    await materialiseDependencies(library, config, viewDb, childStack)
+    const sql = extractSql(library)
+    let rows
+    try {
+      rows = await dbAll(viewDb, sql, {})
+    } catch (err) {
+      throw new SqlQueryRunError(422, 'processing', `SQLView SQL execution failed: ${err.message}`)
+    }
+
+    // Derive column names from the result rows when available, otherwise
+    // introspect the SQL with a LIMIT 0 query to recover column names even
+    // when the view returns no rows.
+    let colNames
+    if (rows.length > 0) {
+      colNames = Object.keys(rows[0])
+    } else {
+      try {
+        const probeRows = await dbAll(viewDb, `SELECT * FROM (${sql}) LIMIT 0`, {})
+        // SQLite returns an empty array with no keys for LIMIT 0, so we fall
+        // back to querying the column names via a PRAGMA on a temp view.
+        if (probeRows.length === 0) {
+          // Create a temporary view and read its column info via PRAGMA.
+          await dbRun(viewDb, `CREATE TEMP VIEW _col_probe AS ${sql}`)
+          const pragma = await dbAll(viewDb, `PRAGMA table_info(_col_probe)`, {})
+          colNames = pragma.map((p) => p.name)
+          await dbRun(viewDb, `DROP VIEW IF EXISTS _col_probe`)
+        } else {
+          colNames = Object.keys(probeRows[0])
+        }
+      } catch {
+        // If introspection fails, return an empty column list; the referencing
+        // query will get a table with no columns and return zero rows.
+        colNames = []
+      }
+    }
+
+    return { rows, colNames }
+  } finally {
+    await dbClose(viewDb)
+  }
+}
+
+/**
+ * Materialise each `relatedArtifact[type=depends-on]` dependency into a table
+ * on the supplied SQLite connection.
+ *
+ * For ViewDefinition dependencies the existing path is used: columns are
+ * derived from the declared select tree, data from `evaluate()`. For SQLView
+ * Library dependencies the view is executed recursively via `runLibraryToRows`
+ * and the result rows are inserted into a table whose columns are derived from
+ * the view's result-set column names.
+ *
+ * SQLView columns are intentionally NOT added to `labelToColumns` because that
+ * map carries FHIR column-type declarations used for `_format=fhir` typing;
+ * SQLView columns have no declared FHIR types and are typed at runtime by the
+ * existing `typeof()` probe in `resolveColumnFhirTypes`.
+ *
+ * Returns a map of label → column metadata (ViewDefinition columns only) used
+ * later for the `_format=fhir` response.
+ *
+ * @param {object} library - Library whose dependencies are to be materialised.
+ * @param {object} config - Server config.
+ * @param {object} queryDb - SQLite database to create tables in.
+ * @param {Set<string>} stack - Canonical keys on the current resolution path for cycle detection.
+ * @returns {Promise<object>} map from label to column metadata array.
+ * @throws {SqlQueryRunError} on resolution failure, type mismatch, cycle, or SQL error.
+ */
+async function materialiseDependencies(library, config, queryDb, stack = new Set()) {
   const labelToColumns = {}
   const deps = (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')
   for (const dep of deps) {
@@ -244,36 +411,84 @@ async function materialiseDependencies(library, config, queryDb) {
         `relatedArtifact for ${dep.resource} is missing required 'label'`,
       )
     }
-    const viewDef = await resolveViewDefinition(config, dep.resource)
-    if (!viewDef) {
-      throw new SqlQueryRunError(404, 'not-found', `ViewDefinition '${dep.resource}' not found`)
-    }
-    const columns = viewColumns(viewDef)
-    if (columns.length === 0) {
-      throw new SqlQueryRunError(422, 'invalid', `ViewDefinition '${dep.resource}' declares no columns`)
-    }
-    labelToColumns[label] = columns
 
-    const colDdl = columns.map((c) => `"${c.name}" ${columnAffinity(c.type)}`).join(', ')
-    await dbRun(queryDb, `CREATE TABLE "${label}" (${colDdl})`)
+    const resolved = await resolveDependency(config, dep.resource)
+    if (!resolved) {
+      // Preserve the "ViewDefinition" word in the error diagnostic so that
+      // existing tests asserting on this text continue to pass.
+      throw new SqlQueryRunError(
+        404,
+        'not-found',
+        `ViewDefinition or Library '${dep.resource}' not found (no ViewDefinition or Library matched)`,
+      )
+    }
 
-    const rows = await evaluateView(config, viewDef)
-    if (rows.length > 0) {
-      const placeholders = columns.map(() => '?').join(', ')
-      const colList = columns.map((c) => `"${c.name}"`).join(', ')
-      const insertSql = `INSERT INTO "${label}" (${colList}) VALUES (${placeholders})`
-      // Use a transaction so the inserts are batched.
-      await dbRun(queryDb, 'BEGIN')
-      try {
-        for (const row of rows) {
-          const values = columns.map((c) => coerceForSqlite(row[c.name]))
-          await dbRun(queryDb, insertSql, values)
-        }
-        await dbRun(queryDb, 'COMMIT')
-      } catch (err) {
-        await dbRun(queryDb, 'ROLLBACK').catch(() => {})
-        throw err
+    if (resolved.kind === 'ViewDefinition') {
+      // Existing ViewDefinition path: use declared column types and evaluate().
+      const viewDef = resolved.resource
+      const columns = viewColumns(viewDef)
+      if (columns.length === 0) {
+        throw new SqlQueryRunError(422, 'invalid', `ViewDefinition '${dep.resource}' declares no columns`)
       }
+      labelToColumns[label] = columns
+
+      const colDdl = columns.map((c) => `"${c.name}" ${columnAffinity(c.type)}`).join(', ')
+      await dbRun(queryDb, `CREATE TABLE "${label}" (${colDdl})`)
+
+      const rows = await evaluateView(config, viewDef)
+      if (rows.length > 0) {
+        const placeholders = columns.map(() => '?').join(', ')
+        const colList = columns.map((c) => `"${c.name}"`).join(', ')
+        const insertSql = `INSERT INTO "${label}" (${colList}) VALUES (${placeholders})`
+        // Use a transaction so the inserts are batched efficiently.
+        await dbRun(queryDb, 'BEGIN')
+        try {
+          for (const row of rows) {
+            const values = columns.map((c) => coerceForSqlite(row[c.name]))
+            await dbRun(queryDb, insertSql, values)
+          }
+          await dbRun(queryDb, 'COMMIT')
+        } catch (err) {
+          await dbRun(queryDb, 'ROLLBACK').catch(() => {})
+          throw err
+        }
+      }
+    } else {
+      // Library (SQLView) path: execute recursively and materialise results.
+      const depLib = resolved.resource
+      const { rows, colNames } = await runLibraryToRows(depLib, config, stack)
+
+      // Derive the table DDL from the view's result-set column names.  All
+      // columns use TEXT affinity; SQLite coerces on read and the runtime
+      // typeof() probe in resolveColumnFhirTypes handles _format=fhir typing.
+      if (colNames.length === 0) {
+        // No columns could be derived; create a table with a single dummy
+        // column so the CREATE TABLE succeeds.  The referencing SQL will
+        // still fail if it references columns, but that is a query error.
+        await dbRun(queryDb, `CREATE TABLE "${label}" (_empty INTEGER)`)
+      } else {
+        const colDdl = colNames.map((c) => `"${c}" TEXT`).join(', ')
+        await dbRun(queryDb, `CREATE TABLE "${label}" (${colDdl})`)
+      }
+
+      if (rows.length > 0 && colNames.length > 0) {
+        const placeholders = colNames.map(() => '?').join(', ')
+        const colList = colNames.map((c) => `"${c}"`).join(', ')
+        const insertSql = `INSERT INTO "${label}" (${colList}) VALUES (${placeholders})`
+        await dbRun(queryDb, 'BEGIN')
+        try {
+          for (const row of rows) {
+            const values = colNames.map((c) => coerceForSqlite(row[c]))
+            await dbRun(queryDb, insertSql, values)
+          }
+          await dbRun(queryDb, 'COMMIT')
+        } catch (err) {
+          await dbRun(queryDb, 'ROLLBACK').catch(() => {})
+          throw err
+        }
+      }
+      // SQLView columns are intentionally not added to labelToColumns; the
+      // runtime typeof() probe in resolveColumnFhirTypes handles their typing.
     }
   }
   return labelToColumns
@@ -481,12 +696,28 @@ function inferRuntimeTypesFromRows(rows, colNames) {
 /**
  * Core execution: build an in-memory SQLite database, materialise dependencies,
  * bind parameters, run the SQL, format the response.
+ *
+ * Accepts both `sql-query` and `sql-view` Libraries as the top-level target.
+ * When the target is an `sql-view` no parameter bindings are applied; views
+ * are always executed with an empty parameter set.
  */
 async function executeSqlQueryRun({ library, parametersResource, format, header, config }) {
   const queryDb = new sqlite3.Database(':memory:')
   try {
-    const labelToColumns = await materialiseDependencies(library, config, queryDb)
-    const bindings = bindParameters(library, parametersResource)
+    // Seed the path set with the top-level library so recursive SQLView
+    // execution can detect cycles that loop back to the top-level resource.
+    const topKey = canonicalKey(library)
+    const stack = new Set([topKey])
+    const labelToColumns = await materialiseDependencies(library, config, queryDb, stack)
+
+    // SQLView targets are run with no parameter bindings; only sql-query
+    // Libraries accept caller-supplied parameters.
+    const typeCoding = library?.type?.coding
+    const typeCode = Array.isArray(typeCoding)
+      ? (typeCoding.find((c) => typeof c.code === 'string') || {}).code
+      : undefined
+    const bindings = typeCode === 'sql-view' ? {} : bindParameters(library, parametersResource)
+
     const sql = extractSql(library)
     let rows
     try {
@@ -1012,14 +1243,28 @@ export async function postSqlQueryRunFormInstance(req, res) {
   await handleFormSubmit(req, res, { scope: 'instance', id: req.params.id })
 }
 
-// Render a Library list page mirroring the ViewDefinition list, with a column
-// linking each row to the per-Library $sqlquery-run form.
+/**
+ * Derive the human-readable type label for a Library resource.
+ *
+ * @param {object} lib - The Library FHIR resource.
+ * @returns {string} "SQL Query", "SQL View", or "Unknown".
+ */
+function libraryTypeLabel(lib) {
+  const code = lib.type?.coding?.[0]?.code
+  if (code === 'sql-query') return 'SQL Query'
+  if (code === 'sql-view') return 'SQL View'
+  return 'Unknown'
+}
+
+// Render a Library list page with a Type column that distinguishes SQL Query
+// from SQL View, mirroring the ViewDefinition list.
 function renderLibrariesHtml(res, libraries) {
   const rows = libraries
     .map((lib) => {
       const name = lib.name || lib.id
       const title = lib.title || ''
       const url = lib.url || ''
+      const typeLabel = libraryTypeLabel(lib)
       return `
         <tr>
           <td class="border border-gray-200 p-2">
@@ -1030,6 +1275,12 @@ function renderLibrariesHtml(res, libraries) {
           </td>
           <td class="border border-gray-200 p-2">${escapeHtml(title)}</td>
           <td class="border border-gray-200 p-2 text-xs">${escapeHtml(url)}</td>
+          <td class="border border-gray-200 p-2">
+            <span class="inline-block rounded px-2 py-0.5 text-xs font-medium
+                         ${typeLabel === 'SQL View' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
+              ${escapeHtml(typeLabel)}
+            </span>
+          </td>
           <td class="border border-gray-200 p-2">
             <a class="text-blue-500 hover:text-blue-700"
                href="/Library/${escapeHtml(lib.id)}/$sqlquery-run/form">
@@ -1050,7 +1301,7 @@ function renderLibrariesHtml(res, libraries) {
           <span class="text-gray-500">/</span>
         </div>
         <div class="mt-4 flex items-center space-x-4 border-b border-gray-200 pb-2">
-          <h1 class="flex-1 text-2xl font-bold">SQL queries</h1>
+          <h1 class="flex-1 text-2xl font-bold">SQL libraries</h1>
           <a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>
         </div>
         <table class="mt-4 table-auto border-collapse border border-gray-200">
@@ -1059,6 +1310,7 @@ function renderLibrariesHtml(res, libraries) {
               <th class="bg-gray-100 border border-gray-200 p-2">Name</th>
               <th class="bg-gray-100 border border-gray-200 p-2">Title</th>
               <th class="bg-gray-100 border border-gray-200 p-2">URL</th>
+              <th class="bg-gray-100 border border-gray-200 p-2">Type</th>
               <th class="bg-gray-100 border border-gray-200 p-2">Run</th>
             </tr>
           </thead>

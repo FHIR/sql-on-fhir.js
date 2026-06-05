@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "cycle-view-a",
+  "url": "http://myig.org/Library/cycle-view-a",
+  "name": "CycleViewA",
+  "title": "Cycle View A (for cycle detection tests)",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "Test fixture: SQLView A depends on SQLView B, forming a cycle for cycle detection tests.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/Library/cycle-view-b",
+      "label": "cycle_b"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT * FROM cycle_b"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "female-demographics-view",
+  "url": "http://myig.org/Library/female-demographics-view",
+  "name": "FemaleDemographicsView",
+  "title": "Female Demographics View",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "An SQLView that selects rows from patient_demographics_view for female patients, used for depth-3 recursion tests.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/Library/patient-demographics-view",
+      "label": "all_patients"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT id, date_of_birth, gender FROM all_patients WHERE gender = 'female'"
+        }
+      ]
+    }
+  ]
+}

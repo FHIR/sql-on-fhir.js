@@ -1,0 +1,43 @@
+{
+  "resourceType": "Library",
+  "id": "parameterised-view",
+  "url": "http://myig.org/Library/parameterised-view",
+  "name": "ParameterisedView",
+  "title": "Parameterised View (for error tests)",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "Test fixture: an sql-view Library that declares a parameter; referencing this as a dependency should fail with 422.",
+  "parameter": [
+    {
+      "name": "gender",
+      "type": "string",
+      "use": "in",
+      "documentation": "Gender filter."
+    }
+  ],
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_demographics",
+      "label": "patient_demographics"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT id, gender FROM patient_demographics WHERE gender = :gender"
+        }
+      ]
+    }
+  ]
+}
