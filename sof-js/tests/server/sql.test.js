@@ -312,6 +312,198 @@ describe('$sqlquery-run operation', () => {
   })
 })
 
+describe('$sqlquery-run pre-flight validation', () => {
+  test('rejects a malformed Library with 422 before executing SQL', async () => {
+    // A Library with an invalid type code (neither sql-query nor sql-view)
+    // should be rejected with HTTP 422 before any SQL execution takes place.
+    // The wrong-type Library has no relatedArtifact deps so no ViewDefinition
+    // resolution is attempted - only shape validation fires.
+    const malformed = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'logic-library' }] },
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT 1',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await postSqlQueryRun(
+      '/Library/$sqlquery-run',
+      paramsBody([
+        { name: '_format', valueCode: 'json' },
+        { name: 'queryResource', resource: malformed },
+      ]),
+    )
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+    const errors = body.issue.filter((i) => i.severity === 'error')
+    expect(errors.length).toBeGreaterThan(0)
+  })
+})
+
+describe('Library $validate endpoint', () => {
+  test('returns OperationOutcome with no errors for a conformant SQLQuery Library', async () => {
+    // A well-formed SQLQuery Library posted to $validate should receive an
+    // OperationOutcome with no error-severity issues.
+    const lib = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      relatedArtifact: [
+        {
+          type: 'depends-on',
+          resource: 'http://myig.org/ViewDefinition/patient_demographics',
+          label: 'patient_demographics',
+        },
+      ],
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT COUNT(*) AS total FROM patient_demographics',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await fetch(`${base}/Library/$validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/fhir+json' },
+      body: JSON.stringify(lib),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+    expect(Array.isArray(body.issue)).toBe(true)
+    const errors = body.issue.filter((i) => i.severity === 'error')
+    expect(errors).toHaveLength(0)
+  })
+
+  test('returns OperationOutcome with error issues for an invalid Library', async () => {
+    // A Library with a wrong type code should receive error issues in the
+    // returned OperationOutcome.
+    const lib = {
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'logic-library' }] },
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT 1',
+            },
+          ],
+        },
+      ],
+    }
+    const res = await fetch(`${base}/Library/$validate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/fhir+json' },
+      body: JSON.stringify(lib),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.resourceType).toBe('OperationOutcome')
+    const errors = body.issue.filter((i) => i.severity === 'error')
+    expect(errors.length).toBeGreaterThan(0)
+  })
+
+  test('GET /Library/$validate returns an HTML form', async () => {
+    // The GET endpoint should serve an HTML form for interactive validation.
+    const res = await fetch(`${base}/Library/$validate`, {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('text/html')
+    const html = await res.text()
+    expect(html).toContain('$validate')
+    expect(html).toContain('Library')
+  })
+
+  test('POST /Library/$validate/form renders error issues in an HTML fragment (hx-request)', async () => {
+    // An htmx form submission sends the hx-request header, expecting only the
+    // inner HTML fragment back (not a full page layout).
+    const invalidLib = JSON.stringify({
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'logic-library' }] },
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT 1',
+            },
+          ],
+        },
+      ],
+    })
+    const form = new URLSearchParams({ resource: invalidLib })
+    const res = await fetch(`${base}/Library/$validate/form`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'hx-request': 'true',
+      },
+      body: form.toString(),
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('text/html')
+    const html = await res.text()
+    // The rendered HTML fragment must contain an error indication for the
+    // invalid type code.
+    expect(html).toContain('error')
+  })
+
+  test('POST /Library/$validate/form renders issues in a full page (no hx-request)', async () => {
+    // A non-htmx form submission should receive a full layout page containing
+    // the validation result.
+    const validLib = JSON.stringify({
+      resourceType: 'Library',
+      status: 'active',
+      type: { coding: [{ code: 'sql-query' }] },
+      content: [
+        {
+          contentType: 'application/sql',
+          extension: [
+            {
+              url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+              valueString: 'SELECT 1',
+            },
+          ],
+        },
+      ],
+    })
+    const form = new URLSearchParams({ resource: validLib })
+    const res = await fetch(`${base}/Library/$validate/form`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('text/html')
+    const html = await res.text()
+    // A conformant Library should show "no errors" on the full page.
+    expect(html).toContain('conformant')
+  })
+})
+
 // Helper builders for inline Library resources used by tests.
 
 function inlinePatientCountLibrary() {

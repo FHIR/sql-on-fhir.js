@@ -14,6 +14,7 @@ import { read, search } from './db.js'
 import { evaluate } from '../index.js'
 import { layout } from './ui.js'
 import { isHtml, renderOperationDefinition, wrapBundle } from './utils.js'
+import { validateSqlLibrary } from './sqlLibraryValidation.js'
 
 // Map a FHIR Library.parameter.type to the corresponding `value[x]` field
 // name on a Parameters.parameter entry.
@@ -534,6 +535,17 @@ async function postSqlQueryRun(req, res, { id } = {}) {
       queryResource: inputs.queryResource,
       config: req.config,
     })
+
+    // Pre-flight validation: reject Libraries with error-severity issues before
+    // any SQL execution. Warning-severity issues (e.g. unresolvable dependencies)
+    // are advisory and do not block execution.
+    const validationIssues = await validateSqlLibrary(library, req.config)
+    const validationErrors = validationIssues.filter((i) => i.severity === 'error')
+    if (validationErrors.length > 0) {
+      res.status(422).json({ resourceType: 'OperationOutcome', issue: validationErrors })
+      return
+    }
+
     const result = await executeSqlQueryRun({
       library,
       parametersResource: inputs.parametersResource,
