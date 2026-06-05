@@ -178,11 +178,20 @@ function renderIssuesHtml(issues) {
 /**
  * Serve the Library $validate HTML form.
  *
+ * Reads the Library-scoped $validate OperationDefinition and renders its
+ * title and description so the page reflects accurate Library-specific
+ * metadata rather than re-using the ViewDefinition-scoped definition.
+ *
  * @param {object} req - Express request.
  * @param {object} res - Express response.
  * @returns {Promise<void>}
  */
 export async function getLibraryValidateFormEndpoint(req, res) {
+  const operation = await read(req.config, 'OperationDefinition', 'Library-$validate')
+  const opTitle = operation?.title ?? operation?.name ?? 'Library $validate'
+  const opDescription =
+    operation?.description ??
+    'Paste a Library resource below and click Evaluate to check it against the SQLQuery/SQLView profile rules.'
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
@@ -194,11 +203,8 @@ export async function getLibraryValidateFormEndpoint(req, res) {
           <span class="text-gray-500">/</span>
           <span class="text-gray-700">$validate</span>
         </div>
-        <h1 class="mt-4 text-2xl font-bold">Library $validate</h1>
-        <p class="mt-2 text-sm text-gray-600">
-          Paste a Library resource below and click Evaluate to check it against
-          the SQLQuery/SQLView profile rules.
-        </p>
+        <h1 class="mt-4 text-2xl font-bold">${escapeHtml(opTitle)}</h1>
+        <p class="mt-2 text-sm text-gray-600">${escapeHtml(opDescription)}</p>
         <div class="mt-4 flex gap-4">
           <div class="flex-1">
             <form

@@ -33,21 +33,21 @@
 
 ## 5. Metadata examples
 
-- [ ] 5.1 Add `metadata/Library/active-female-patients-view.json` (SQLView over `patient_demographics`)
-- [ ] 5.2 Add `metadata/Library/female-patient-births.json` (SQLQuery joining the SQLView and the `patient_multiple_birth` ViewDefinition)
-- [ ] 5.3 Verify both examples load on startup and run end-to-end via `$sqlquery-run`
-- [ ] 5.4 Add a Library-scoped `metadata/OperationDefinition/Library-$validate.json` (or equivalent) so the `$validate` form renders accurate metadata, rather than reusing the ViewDefinition-scoped `$validate` definition
+- [x] 5.1 Add `metadata/Library/active-female-patients-view.json` (SQLView over `patient_demographics`)
+- [x] 5.2 Add `metadata/Library/female-patient-births.json` (SQLQuery joining the SQLView and the `patient_multiple_birth` ViewDefinition)
+- [x] 5.3 Verify both examples load on startup and run end-to-end via `$sqlquery-run`
+- [x] 5.4 Add a Library-scoped `metadata/OperationDefinition/Library-$validate.json` (or equivalent) so the `$validate` form renders accurate metadata, rather than reusing the ViewDefinition-scoped `$validate` definition
 
 ## 6. UI
 
 - [x] 6.1 Add a Type column/badge (SQL Query vs SQL View) to the Library list and correct the list/index headings
-- [ ] 6.2 Render the resolved `relatedArtifact` dependencies (label, kind, target) on the `$sqlquery-run` instance form, including an unresolved-dependency state
+- [x] 6.2 Render the resolved `relatedArtifact` dependencies (label, kind, target) on the `$sqlquery-run` instance form, including an unresolved-dependency state
 - [x] 6.3 Confirm the Library `$validate` form renders and reports issues (links from the Library area)
 
 ## 7. Docs and verification
 
-- [ ] 7.1 Update `metadata/OperationDefinition/$sqlquery-run.json` description to note composition of ViewDefinitions and SQLViews
-- [ ] 7.2 Update `README.md` with a brief mention of SQLView and query composition support
+- [x] 7.1 Update `metadata/OperationDefinition/$sqlquery-run.json` description to note composition of ViewDefinitions and SQLViews
+- [x] 7.2 Update `README.md` with a brief mention of SQLView and query composition support
 - [ ] 7.3 Run the full Jest suite (`npm test`, which runs `jest`) and `npm run validate`; confirm all pass and no existing test was modified to pass
 - [ ] 7.4 Capture a screenshot of the updated Library list, the run form dependencies panel, and the Library `$validate` page using the agent-browser skill
 - [ ] 7.5 (Separate commit) Fix the pre-existing `POST /ViewDefinition/$validate` bug in `validate.js`: it calls `req.body.json()` (wrong under Express, where `req.body` is already parsed) and echoes the resource without validating. Make it validate and return an `OperationOutcome`, consistent with the new Library `$validate`

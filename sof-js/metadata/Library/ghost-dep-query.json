@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "ghost-dep-query",
+  "url": "http://myig.org/Library/ghost-dep-query",
+  "name": "GhostDepQuery",
+  "title": "Ghost Dependency Query",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "A query whose sole dependency cannot be resolved, used to exercise the unresolved-dependency display path.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/Library/does-not-exist",
+      "label": "ghost_table"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT 1 AS placeholder FROM ghost_table"
+        }
+      ]
+    }
+  ]
+}

@@ -8,7 +8,9 @@ beforeAll(async () => {
   server = await startServer({ port })
   console.log('Server started')
   await waitForData()
-})
+  // Allow up to 90 seconds so the suite passes when run in isolation against a
+  // cold cache (the remote NDJSON load can take several seconds on first run).
+}, 90000)
 
 // Poll until the patient_demographics view returns at least one row. Data is
 // fetched from a remote NDJSON source the first time the server starts, so
@@ -468,6 +470,25 @@ describe('Library $validate endpoint', () => {
     // The rendered HTML fragment must contain an error indication for the
     // invalid type code.
     expect(html).toContain('error')
+  })
+
+  // 5.4 - Library-scoped $validate OperationDefinition
+  test('GET /Library/$validate form page renders Library-$validate OperationDefinition metadata', async () => {
+    // The Library $validate form must render content from the Library-scoped
+    // OperationDefinition (Library-$validate), not a hard-coded fallback.
+    // The specific description string from that resource is the discriminating
+    // assertion: it can only appear if the OperationDefinition is loaded and
+    // rendered.
+    const res = await fetch(`${base}/Library/$validate`, {
+      headers: { Accept: 'text/html' },
+    })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    // This substring is taken directly from the Library-$validate
+    // OperationDefinition description field.
+    expect(html).toContain('Validate a Library resource against the SQLQuery and SQLView profile rules')
+    // The page must include the form target marker.
+    expect(html).toContain('/Library/$validate/form')
   })
 
   test('POST /Library/$validate/form renders issues in a full page (no hx-request)', async () => {
@@ -982,6 +1003,115 @@ describe('SQLQuery composition error cases', () => {
     // The diagnostic must still contain "ViewDefinition" so the original test
     // contract is preserved.
     expect(body.issue[0].diagnostics).toContain('ViewDefinition')
+  })
+})
+
+// ============================================================================
+// Section 5: Metadata examples
+// ============================================================================
+
+describe('Metadata example: active-female-patients-view SQLView', () => {
+  // 5.1 / 5.3 - Verify the stored active-female-patients-view SQLView loads and runs.
+  test('stored active-female-patients-view runs via instance route and returns female rows', async () => {
+    // The active-female-patients-view SQLView selects only female patients from
+    // the patient_demographics ViewDefinition. Running it directly must return
+    // at least one row and every row must have gender='female'.
+    const res = await postSqlQueryRun(
+      '/Library/active-female-patients-view/$sqlquery-run',
+      paramsBody([{ name: '_format', valueCode: 'json' }]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(row.gender).toBe('female')
+    }
+  })
+})
+
+describe('Metadata example: female-patient-births SQLQuery', () => {
+  // 5.2 / 5.3 - Verify the stored female-patient-births SQLQuery loads and runs.
+  test('stored female-patient-births runs via instance route and returns joined rows', async () => {
+    // The female-patient-births SQLQuery joins the active-female-patients-view SQLView
+    // with the patient_multiple_birth ViewDefinition. The result rows must include
+    // id, gender, and multiple_birth columns, and gender must be 'female' for all rows.
+    const res = await postSqlQueryRun(
+      '/Library/female-patient-births/$sqlquery-run',
+      paramsBody([{ name: '_format', valueCode: 'json' }]),
+    )
+
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(Array.isArray(rows)).toBe(true)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(rows[0]).toHaveProperty('id')
+    expect(rows[0]).toHaveProperty('gender')
+    expect(rows[0]).toHaveProperty('multiple_birth')
+    for (const row of rows) {
+      expect(row.gender).toBe('female')
+    }
+  })
+})
+
+// ============================================================================
+// Section 6.2: $sqlquery-run instance form dependencies panel
+// ============================================================================
+
+describe('$sqlquery-run instance form dependencies panel', () => {
+  // 6.2 - The instance form for a Library that has relatedArtifact dependencies must
+  // render a "Dependencies" section listing each dependency's label, kind, and target.
+  test('instance form for female-patient-births shows resolved dependencies panel', async () => {
+    // The female-patient-births Library has two relatedArtifact entries: one
+    // pointing to the active-female-patients-view SQLView and one pointing to
+    // the patient_multiple_birth ViewDefinition.  The rendered form must contain
+    // a "Dependencies" heading and show both entries with their labels.
+    const res = await fetch(`${base}/Library/female-patient-births/$sqlquery-run/form`)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toContain('text/html')
+    const html = await res.text()
+
+    // The form must contain a Dependencies section heading.
+    expect(html).toContain('Dependencies')
+
+    // The labels declared in the Library's relatedArtifact must appear.
+    expect(html).toContain('female_patients')
+    expect(html).toContain('births')
+
+    // The kind column must distinguish SQLView from ViewDefinition.
+    expect(html).toContain('SQLView')
+    expect(html).toContain('ViewDefinition')
+  })
+
+  test('instance form for Library with no dependencies shows no dependencies panel', async () => {
+    // The patient-count Library has no SQLView dependencies - it references only
+    // a single ViewDefinition. The form should still render but may show the
+    // dependency panel as empty or omit it entirely.
+    const res = await fetch(`${base}/Library/patient-count/$sqlquery-run/form`)
+
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    // The page must load without error.
+    expect(html).toContain('SQLQuery Run')
+  })
+
+  test('instance form shows unresolved state for an unresolvable dependency', async () => {
+    // The stored ghost-dep-query Library has a single relatedArtifact that
+    // points at a canonical that does not exist.  The instance form must render
+    // the dependency row with the muted "unresolved" marker rather than crashing,
+    // exercising the kind===null branch in renderDependenciesPanel.
+    const res = await fetch(`${base}/Library/ghost-dep-query/$sqlquery-run/form`)
+
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('Dependencies')
+    // The dependency label must appear in the rendered table.
+    expect(html).toContain('ghost_table')
+    // The "unresolved" marker must be present because the canonical cannot be
+    // resolved to any ViewDefinition or Library.
+    expect(html).toContain('unresolved')
   })
 })
 

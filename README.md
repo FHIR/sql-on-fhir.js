@@ -4,7 +4,9 @@ This repository holds the tooling and conformance material for the
 [SQL on FHIR](https://sql-on-fhir.org/) specification:
 
 - `sof-js/` - the JavaScript reference implementation (engine, validator and
-  server).
+  server). The server supports SQLQuery and SQLView Library execution via
+  `$sqlquery-run`, including recursive composition of SQLView dependencies as
+  virtual tables.
 - `tests/` - the shared JSON test suite that implementations run against.
 - `tests.schema.json` - the JSON Schema describing the test file format.
 - `test_report/` - the site that visualises implementation test results and

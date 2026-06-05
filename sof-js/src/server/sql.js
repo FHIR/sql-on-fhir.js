@@ -887,6 +887,71 @@ function renderParametersJsonTextarea() {
   `
 }
 
+/**
+ * Resolve each `relatedArtifact[type=depends-on]` entry for display purposes,
+ * returning a list of objects describing the label, resolved kind, and target.
+ *
+ * Uses `resolveDependency` which tries ViewDefinition first, then Library.
+ * Entries that cannot be resolved are returned with `kind: null` so the caller
+ * can render an "unresolved" state.
+ *
+ * @param {object} library - Library resource whose dependencies are to be resolved.
+ * @param {object} config - Server config.
+ * @returns {Promise<Array<{label: string, kind: string|null, target: string}>>} resolved dependency entries.
+ */
+async function resolveDependenciesForDisplay(library, config) {
+  const deps = (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')
+  const results = []
+  for (const dep of deps) {
+    const resolved = await resolveDependency(config, dep.resource)
+    let kind = null
+    if (resolved) {
+      kind = resolved.kind === 'ViewDefinition' ? 'ViewDefinition' : 'SQLView'
+    }
+    results.push({ label: dep.label || '', kind, target: dep.resource || '' })
+  }
+  return results
+}
+
+/**
+ * Render the Dependencies panel for the instance form.
+ * Lists each dependency with its label, resolved kind, and target canonical.
+ * Entries that could not be resolved show a muted "unresolved" note.
+ *
+ * @param {Array<{label: string, kind: string|null, target: string}>} deps - resolved dependency entries.
+ * @returns {string} HTML string for the panel.
+ */
+function renderDependenciesPanel(deps) {
+  if (deps.length === 0) {
+    return `<p class="text-sm text-gray-500">This Library declares no dependencies.</p>`
+  }
+  const rows = deps
+    .map(
+      (d) => `
+      <tr>
+        <td class="border border-gray-200 p-2 font-mono text-xs">${escapeHtml(d.label)}</td>
+        <td class="border border-gray-200 p-2 text-sm">
+          ${d.kind ? escapeHtml(d.kind) : '<span class="text-gray-400 text-xs italic">unresolved</span>'}
+        </td>
+        <td class="border border-gray-200 p-2 text-xs text-gray-600">${escapeHtml(d.target)}</td>
+      </tr>
+    `,
+    )
+    .join('')
+  return `
+    <table class="mt-2 table-auto border-collapse border border-gray-200 w-full">
+      <thead>
+        <tr>
+          <th class="bg-gray-100 border border-gray-200 p-2 text-left text-sm">Label</th>
+          <th class="bg-gray-100 border border-gray-200 p-2 text-left text-sm">Kind</th>
+          <th class="bg-gray-100 border border-gray-200 p-2 text-left text-sm">Target</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `
+}
+
 // Build the breadcrumb header for the form page.
 function renderBreadcrumbs(scope, library) {
   if (scope === 'instance') {
@@ -920,6 +985,12 @@ async function renderForm(req, res, { scope, library }) {
       : scope === 'type'
         ? '/Library/$sqlquery-run/form'
         : '/$sqlquery-run/form'
+
+  // For instance scope, resolve the library's dependencies for display in the
+  // Dependencies panel. This is a display-only resolution - it does not execute
+  // any SQL.
+  const resolvedDepsForDisplay =
+    scope === 'instance' ? await resolveDependenciesForDisplay(library, req.config) : []
 
   const sourceFields =
     scope === 'instance'
@@ -976,6 +1047,13 @@ async function renderForm(req, res, { scope, library }) {
           hx-swap="innerHTML">
           <h3 class="font-bold mt-4">Library source</h3>
           ${sourceFields}
+
+          ${
+            scope === 'instance'
+              ? `<h3 class="font-bold mt-4">Dependencies (virtual tables)</h3>
+          ${renderDependenciesPanel(resolvedDepsForDisplay)}`
+              : ''
+          }
 
           <h3 class="font-bold mt-4">Library parameters</h3>
           ${parameterFields}
