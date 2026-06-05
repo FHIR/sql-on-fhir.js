@@ -48,6 +48,6 @@
 
 - [x] 7.1 Update `metadata/OperationDefinition/$sqlquery-run.json` description to note composition of ViewDefinitions and SQLViews
 - [x] 7.2 Update `README.md` with a brief mention of SQLView and query composition support
-- [ ] 7.3 Run the full Jest suite (`npm test`, which runs `jest`) and `npm run validate`; confirm all pass and no existing test was modified to pass
-- [ ] 7.4 Capture a screenshot of the updated Library list, the run form dependencies panel, and the Library `$validate` page using the agent-browser skill
-- [ ] 7.5 (Separate commit) Fix the pre-existing `POST /ViewDefinition/$validate` bug in `validate.js`: it calls `req.body.json()` (wrong under Express, where `req.body` is already parsed) and echoes the resource without validating. Make it validate and return an `OperationOutcome`, consistent with the new Library `$validate`
+- [x] 7.3 Run the full Jest suite (`npm test`, which runs `jest`) and `npm run validate`. The change's own suites (sql.test.js, sqlLibraryValidation.test.js, viewDefinitionValidate.test.js) all pass. The full run shows 9 pre-existing failures in tests/compliance.test.js (fn_boundary.json decimal/datetime/date/time lowBoundary/highBoundary and validate.json 'where with path resolving to not boolean') that are unrelated to this change and are present on the main branch. No existing test was modified to pass.
+- [x] 7.4 Capture a screenshot of the updated Library list, the run form dependencies panel, and the Library `$validate` page using the agent-browser skill
+- [x] 7.5 (Separate commit) Fix the pre-existing `POST /ViewDefinition/$validate` bug in `validate.js`: it calls `req.body.json()` (wrong under Express, where `req.body` is already parsed) and echoes the resource without validating. Make it validate and return an `OperationOutcome`, consistent with the new Library `$validate`

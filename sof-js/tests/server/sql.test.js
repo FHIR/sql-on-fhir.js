@@ -876,8 +876,14 @@ describe('SQLQuery composition error cases', () => {
     expect(res.status).toBe(422)
     const body = await res.json()
     expect(body.resourceType).toBe('OperationOutcome')
-    // The diagnostic message must describe the cycle.
-    expect(body.issue[0].diagnostics).toMatch(/cycle/i)
+    // The diagnostic must name the cycle path, including both participants.
+    const diag = body.issue[0].diagnostics
+    expect(diag).toMatch(/cycle/i)
+    expect(diag).toContain('http://myig.org/Library/cycle-view-a')
+    expect(diag).toContain('http://myig.org/Library/cycle-view-b')
+    // Both canonical keys must appear in a sequence indicating the cycle, e.g.
+    // "cycle-view-a -> cycle-view-b -> cycle-view-a".
+    expect(diag).toMatch(/cycle-view-a.*->.*cycle-view-b.*->.*cycle-view-a/)
   })
 
   // 3.6 - Library dependency of type sql-query returns 422
