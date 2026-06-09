@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "active-female-patients-view",
+  "url": "http://myig.org/Library/active-female-patients-view",
+  "name": "ActiveFemalePatientsView",
+  "title": "Active Female Patients View",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "An SQLView that selects id, date_of_birth, and gender for female patients from the patient_demographics ViewDefinition.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_demographics",
+      "label": "patient_demographics"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT id, date_of_birth, gender FROM patient_demographics WHERE gender = 'female'"
+        }
+      ]
+    }
+  ]
+}

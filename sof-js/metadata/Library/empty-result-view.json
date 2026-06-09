@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "empty-result-view",
+  "url": "http://myig.org/Library/empty-result-view",
+  "name": "EmptyResultView",
+  "title": "Empty Result View (for column derivation tests)",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "Test fixture: an SQLView that always returns zero rows, used to verify column derivation works without rows.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_demographics",
+      "label": "patient_demographics"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT id, gender FROM patient_demographics WHERE 1 = 0"
+        }
+      ]
+    }
+  ]
+}

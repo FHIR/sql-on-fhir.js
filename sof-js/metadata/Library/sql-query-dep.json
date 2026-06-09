@@ -1,0 +1,35 @@
+{
+  "resourceType": "Library",
+  "id": "sql-query-dep",
+  "url": "http://myig.org/Library/sql-query-dep",
+  "name": "SqlQueryDep",
+  "title": "SQL Query used as dependency (for error tests)",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "Test fixture: an sql-query Library; referencing this as a dependency should fail with 422.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_demographics",
+      "label": "patient_demographics"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT COUNT(*) AS total FROM patient_demographics"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "resourceType": "Library",
+  "id": "female-patient-births",
+  "url": "http://myig.org/Library/female-patient-births",
+  "name": "FemalePatientBirths",
+  "title": "Female Patient Births",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "An SQLQuery that joins the active-female-patients-view SQLView with the patient_multiple_birth ViewDefinition, returning id, gender, and multiple_birth for each female patient.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/Library/active-female-patients-view",
+      "label": "female_patients"
+    },
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_multiple_birth",
+      "label": "births"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "extension": [
+        {
+          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "valueString": "SELECT female_patients.id, female_patients.gender, births.multiple_birth FROM female_patients JOIN births ON female_patients.id = births.id"
+        }
+      ]
+    }
+  ]
+}

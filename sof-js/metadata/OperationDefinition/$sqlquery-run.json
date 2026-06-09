@@ -13,7 +13,7 @@
   "type": true,
   "instance": true,
   "resource": ["Library"],
-  "description": "Execute a SQLQuery Library against ViewDefinition tables.",
+  "description": "Execute a SQLQuery or SQLView Library. Dependencies declared in relatedArtifact may be ViewDefinitions or SQLView Libraries, which are materialised recursively as virtual tables for the query.",
   "parameter": [
     {
       "name": "_format",

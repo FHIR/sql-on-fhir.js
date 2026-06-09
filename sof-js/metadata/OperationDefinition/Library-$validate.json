@@ -1,0 +1,31 @@
+{
+  "resourceType": "OperationDefinition",
+  "id": "Library-$validate",
+  "name": "LibraryValidate",
+  "url": "http://myig.org/OperationDefinition/Library-$validate",
+  "description": "Validate a Library resource against the SQLQuery and SQLView profile rules. Returns an OperationOutcome whose issues describe any conformance problems found.",
+  "kind": "operation",
+  "code": "validate",
+  "system": false,
+  "type": true,
+  "instance": false,
+  "resource": ["Library"],
+  "parameter": [
+    {
+      "max": "1",
+      "min": 1,
+      "use": "in",
+      "scope": ["type"],
+      "name": "resource",
+      "type": "Library",
+      "documentation": "The Library resource to validate against the SQLQuery/SQLView profile rules."
+    },
+    {
+      "scope": ["type"],
+      "name": "return",
+      "type": "OperationOutcome",
+      "use": "out",
+      "documentation": "An OperationOutcome whose issues describe any conformance problems found. An empty issue list indicates a conformant Library."
+    }
+  ]
+}
