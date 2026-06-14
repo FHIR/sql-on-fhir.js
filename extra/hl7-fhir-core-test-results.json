@@ -225,6 +225,20 @@
       }
     }]
   },
+  "fn_first.json" : {
+    "tests" : [{
+      "name" : "table level first()",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "table and field level first()",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
   "collection.json" : {
     "tests" : [{
       "name" : "fail when 'collection' is not true",
@@ -246,20 +260,6 @@
     },
     {
       "name" : "collection = false relative to forEachOrNull parent",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
-  "fn_first.json" : {
-    "tests" : [{
-      "name" : "table level first()",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "table and field level first()",
       "result" : {
         "passed" : true
       }
@@ -417,14 +417,6 @@
       }
     }]
   },
-  "fn_empty.json" : {
-    "tests" : [{
-      "name" : "empty names",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
   "fhirpath.json" : {
     "tests" : [{
       "name" : "one element",
@@ -488,6 +480,14 @@
     },
     {
       "name" : "string join: default separator",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "fn_empty.json" : {
+    "tests" : [{
+      "name" : "empty names",
       "result" : {
         "passed" : true
       }
@@ -625,6 +625,20 @@
       }
     }]
   },
+  "fn_extension.json" : {
+    "tests" : [{
+      "name" : "simple extension",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "nested extension",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
   "fn_join.json" : {
     "tests" : [{
       "name" : "join with comma",
@@ -640,20 +654,6 @@
     },
     {
       "name" : "join with no value - default to no separator",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
-  "fn_extension.json" : {
-    "tests" : [{
-      "name" : "simple extension",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "nested extension",
       "result" : {
         "passed" : true
       }
