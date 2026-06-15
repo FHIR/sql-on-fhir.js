@@ -13,7 +13,7 @@ This repository holds the tooling and conformance material for the
   hosts the interactive playground.
 
 The specification itself (the HL7 FHIR Implementation Guide) lives in a separate
-repository: [FHIR/sql-on-fhir](https://github.com/FHIR/sql-on-fhir).
+repository: [HL7/sql-on-fhir](https://github.com/HL7/sql-on-fhir).
 
 Browse the existing [implementations page][] or register
 [your own](#adding-your-implementation), and try the
