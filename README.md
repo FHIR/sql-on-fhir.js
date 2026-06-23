@@ -26,12 +26,12 @@ Browse the existing [implementations page][] or register
 
 ## FHIR Foundation Project Statement
 
-- Maintainers: TBC at next SQL on FHIR meeting.
+- Maintainers: Nikolai Ryzhikov, John Grimes.
 - Issues / Discussion:
   [analytics on FHIR@chat.fhir.org](https://chat.fhir.org/#narrow/stream/179219-analytics-on-FHIR).
-- License: MIT (TBC at next SQL on FHIR meeting).
-- Contribution Policy: [CONTRIBUTING.md](CONTRIBUTING.md) (to be ratified at next
-  SQL on FHIR meeting).
+- License: MIT
+- Contribution Policy: TBC at next
+  SQL on FHIR meeting.
 - Security Information: Security advisories will be published at the
   [GitHub Security Advisories](https://github.com/FHIR/sql-on-fhir.js/security/advisories)
   page, and you can also
