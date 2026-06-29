@@ -8,6 +8,7 @@ import { mountRoutes as mountViewsRoutes } from './server/views.js'
 import { mountRoutes as mountEvaluateRoutes } from './server/evaluate.js'
 import { mountRoutes as mountValidateRoutes } from './server/validate.js'
 import { mountRoutes as mountSqlQueryRunRoutes } from './server/sql.js'
+import { mountRoutes as mountMaterializedViewRoutes } from './server/materializedView.js'
 import { migrate, getDb } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
 import { layout } from './server/ui.js'
@@ -75,6 +76,7 @@ export async function startServer(config) {
   // Operation routes must be mounted before the catch-all FHIR routes so
   // that paths like /$sqlquery-run/form are not shadowed by /:resourceType/:id.
   mountSqlQueryRunRoutes(app)
+  mountMaterializedViewRoutes(app)
   mountFhirRoutes(app)
   app.get('/', getIndex)
   console.log('Routes mounted')

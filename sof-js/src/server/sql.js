@@ -227,6 +227,30 @@ async function evaluateView(config, viewDef) {
   return evaluate(viewDef, data)
 }
 
+/**
+ * Resolve a view reference (a ViewDefinition or a SQLView Library) and build its
+ * rows together with column metadata. Reused by the MaterializedView resource to
+ * materialise a view into a persisted relation.
+ *
+ * @param {object} config - Server config.
+ * @param {string} ref - Canonical URL or reference of the view.
+ * @returns {Promise<{rows: object[], columns: {name: string, type: string}[], kind: string}>}
+ * @throws {SqlQueryRunError} 404 when the ref cannot be resolved.
+ */
+export async function materializeRefToRows(config, ref) {
+  const dep = await resolveDependency(config, ref)
+  if (!dep) {
+    throw new SqlQueryRunError(404, 'not-found', `View not found: ${ref}`)
+  }
+  if (dep.kind === 'ViewDefinition') {
+    const rows = await evaluateView(config, dep.resource)
+    return { rows, columns: viewColumns(dep.resource), kind: 'ViewDefinition' }
+  }
+  // SQLView Library — run its SQL over its own materialised dependencies.
+  const { rows, colNames } = await runLibraryToRows(dep.resource, config, new Set())
+  return { rows, columns: colNames.map((n) => ({ name: n, type: 'string' })), kind: 'SQLView' }
+}
+
 // Build column metadata for a ViewDefinition by walking its select tree.
 // Returns an array of { name, type } in column order.
 function viewColumns(viewDef) {
