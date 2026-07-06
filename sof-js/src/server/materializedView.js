@@ -427,14 +427,63 @@ function htmlNewForm(views) {
     </div>`)
 }
 
-function htmlData(mv, rows) {
+// Resolve a materialization's dependsOn graph into a tree of records (for
+// display). Cycle-guarded via `seen`.
+async function buildDepTree(db, mv, seen = new Set()) {
+  const children = []
+  for (const dep of mv.dependsOn || []) {
+    const id = (dep.reference || '').split('/').pop()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const child = await readRecord(db, id)
+    if (child) children.push(await buildDepTree(db, child, seen))
+  }
+  return { mv, children }
+}
+
+// Render one dependency node (and its subtree) as a nested list item.
+function depNode(node) {
+  const mv = node.mv
+  const kids = node.children.length
+    ? `<ul class="ml-4 border-l border-gray-200 pl-3 mt-1">${node.children.map(depNode).join('')}</ul>`
+    : ''
+  return `
+      <li class="py-1">
+        <div class="flex items-center gap-2 text-sm">
+          ${tableIcon('w-3.5 h-3.5 text-gray-400 shrink-0')}
+          <a href="/MaterializedView/${mv.id}/$data" class="font-mono text-blue-600 hover:underline">${escapeHtml(mv.name)}</a>
+          <span class="text-gray-400 text-xs truncate" title="${escapeHtml(mv.view)}">${escapeHtml(mv.view)}</span>
+          ${statusPill(mv.status)}
+          <span class="text-gray-400 text-xs tabular-nums">${mv.rowCount ?? ''} rows</span>
+        </div>
+        ${kids}
+      </li>`
+}
+
+function renderDepTree(tree) {
+  if (!tree.children.length) return ''
+  return `
+    <section class="mt-6">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="px-2 py-0.5 rounded bg-slate-100 font-mono text-sm font-semibold">dependencies</span>
+        <span class="text-gray-400 text-sm">upstream materializations on this destination</span>
+      </div>
+      <ul class="border border-gray-200 rounded-md p-3">
+        ${tree.children.map(depNode).join('')}
+      </ul>
+    </section>`
+}
+
+function htmlData(mv, rows, depTree) {
   return layout(`
-    <div class="container mx-auto p-4">
+    <div class="container mx-auto p-4 max-w-4xl">
       ${breadcrumb('<a href="/MaterializedView" class="text-blue-500">Materialized Views</a>', `<span>${escapeHtml(mv.name)}</span>`)}
       <h1 class="mt-4 text-2xl font-bold">
         ${escapeHtml(mv.destination)}.${escapeHtml(mv.name)}
         <span class="text-sm font-normal text-gray-500">— ${mv.rowCount} rows · ${mv.status} · ${escapeHtml(mv.view)}</span>
       </h1>
+      ${depTree ? renderDepTree(depTree) : ''}
+      <h2 class="mt-6 text-sm font-semibold text-gray-500 uppercase tracking-wide">Data</h2>
       ${rowsTable(rows)}
     </div>`)
 }
@@ -737,8 +786,9 @@ async function getMaterializedViewData(req, res) {
   if (!mv) return sendError(req, res, 404, 'not-found', `MaterializedView/${req.params.id} not found`)
   const rows = await readRelation(db, mv.destination, mv.name)
   if (isHtml(req)) {
+    const depTree = await buildDepTree(db, mv)
     res.setHeader('Content-Type', 'text/html')
-    return res.send(htmlData(mv, rows))
+    return res.send(htmlData(mv, rows, depTree))
   }
   res.json(rows)
 }
