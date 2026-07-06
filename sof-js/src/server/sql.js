@@ -1434,7 +1434,9 @@ export async function getLibraryListEndpoint(req, res) {
 
 const SQL_TEXT_URL = 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text'
 
-// Parse the Dependencies textarea: one `label = ref` per line.
+const DEP_ROWS = 6
+
+// Parse the Dependencies textarea: one `label = ref` per line (API compatibility).
 function parseDependencyLines(text) {
   return String(text || '')
     .split('\n')
@@ -1447,14 +1449,66 @@ function parseDependencyLines(text) {
     })
 }
 
-function renderLibraryNewForm(res, values = {}) {
+// Dependencies from the form's dependency rows (view select + label input),
+// falling back to the legacy `dependsOn` textarea for API callers.
+function parseDependencyRows(body) {
+  const rows = []
+  for (let i = 0; i < DEP_ROWS; i++) {
+    const resource = (body[`dep_ref_${i}`] || '').trim()
+    if (!resource) continue
+    const label = (body[`dep_label_${i}`] || '').trim() || sanitizeIdent(resource.split('/').pop())
+    rows.push({ label, resource })
+  }
+  if (rows.length) return rows
+  return parseDependencyLines(body.dependsOn)
+}
+
+// Views a Library can depend on: all ViewDefinitions and SQLView Libraries.
+async function listDependableViews(config) {
+  const vds = await search(config, 'ViewDefinition', 1000)
+  const libs = (await search(config, 'Library', 1000)).filter((l) =>
+    (l.type?.coding || []).some((c) => c.code === 'sql-view'),
+  )
+  return [
+    ...vds.map((v) => ({
+      value: v.url || `ViewDefinition/${v.id}`,
+      label: `ViewDefinition · ${v.name || v.id}`,
+    })),
+    ...libs.map((l) => ({ value: l.url || `Library/${l.id}`, label: `SQLView · ${l.name || l.id}` })),
+  ]
+}
+
+async function renderLibraryNewForm(config, res, values = {}) {
   const name = values.name || 'my_view'
   const type = values.type || 'sql-view'
   const sql = values.sql || 'SELECT * FROM my_dependency'
-  const dependsOn = values.dependsOn || 'my_dependency = http://myig.org/ViewDefinition/patient_demographics'
   const typeOpts = ['sql-view', 'sql-query']
     .map((t) => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`)
     .join('')
+
+  const views = await listDependableViews(config)
+  const viewOpts = (selected) =>
+    `<option value="">— none —</option>` +
+    views
+      .map(
+        (v) =>
+          `<option value="${escapeHtml(v.value)}"${v.value === selected ? ' selected' : ''}>${escapeHtml(v.label)}</option>`,
+      )
+      .join('')
+
+  // Dependency rows: a view select + a label input. Selecting a view fills the
+  // label (the table name used in the SQL) when it is empty.
+  const fillLabel = `onchange="var l=this.closest('.dep-row').querySelector('input');if(!l.value){l.value=this.value.split('/').pop().replace(/[^A-Za-z0-9_]/g,'_')}"`
+  const depRows = Array.from({ length: DEP_ROWS }, (_, i) => {
+    const ref = values[`dep_ref_${i}`] || ''
+    const label = values[`dep_label_${i}`] || ''
+    return `
+      <div class="dep-row flex gap-2 mb-2">
+        <select name="dep_ref_${i}" class="${FORM_INPUT}" ${fillLabel}>${viewOpts(ref)}</select>
+        <input name="dep_label_${i}" value="${escapeHtml(label)}" class="${FORM_INPUT} max-w-[12rem]" placeholder="label (table name)" />
+      </div>`
+  }).join('')
+
   const errorHtml = values.error
     ? `<div class="p-3 border border-red-300 bg-red-50 rounded text-red-700 text-sm">${escapeHtml(values.error)}</div>`
     : ''
@@ -1470,7 +1524,7 @@ function renderLibraryNewForm(res, values = {}) {
             <div class="flex-1">${formField('Name', '', `<input name="name" value="${escapeHtml(name)}" class="${FORM_INPUT}" placeholder="my_view" />`)}</div>
             <div class="w-56">${formField('Type', '', `<select name="type" class="${FORM_INPUT}">${typeOpts}</select>`)}</div>
           </div>
-          ${formField('Dependencies', 'one <code>label = view-ref</code> per line — each becomes a virtual table', `<textarea name="dependsOn" rows="4" class="${FORM_INPUT} font-mono text-xs">${escapeHtml(dependsOn)}</textarea>`)}
+          ${formField('Dependencies', 'pick a view and name it — each becomes a virtual table referenced by that label in the SQL', `<div>${depRows}</div>`)}
           ${formField('SQL', 'references the dependency labels as tables', `<textarea name="sql" rows="8" class="${FORM_INPUT} font-mono text-xs">${escapeHtml(sql)}</textarea>`)}
           <button type="submit" class="btn">Create</button>
         </form>
@@ -1479,8 +1533,8 @@ function renderLibraryNewForm(res, values = {}) {
   )
 }
 
-export function getLibraryNewForm(req, res) {
-  renderLibraryNewForm(res)
+export async function getLibraryNewForm(req, res) {
+  await renderLibraryNewForm(req.config, res)
 }
 
 export async function postLibraryEndpoint(req, res) {
@@ -1488,12 +1542,12 @@ export async function postLibraryEndpoint(req, res) {
   const name = (body.name || '').trim()
   if (!name) {
     const msg = 'Library.name is required'
-    if (isHtml(req)) return renderLibraryNewForm(res, { ...body, error: msg })
+    if (isHtml(req)) return renderLibraryNewForm(req.config, res, { ...body, error: msg })
     return res.status(400).json(operationOutcome('required', msg))
   }
   const type = body.type === 'sql-query' ? 'sql-query' : 'sql-view'
   const sql = body.sql || ''
-  const relatedArtifact = parseDependencyLines(body.dependsOn).map((d) => ({
+  const relatedArtifact = parseDependencyRows(body).map((d) => ({
     type: 'depends-on',
     label: d.label,
     resource: d.resource,
@@ -1503,7 +1557,7 @@ export async function postLibraryEndpoint(req, res) {
   const existing = await read(req.config, 'Library', id)
   if (existing) {
     const msg = `A Library with id '${id}' already exists; choose a different name.`
-    if (isHtml(req)) return renderLibraryNewForm(res, { ...body, error: msg })
+    if (isHtml(req)) return renderLibraryNewForm(req.config, res, { ...body, error: msg })
     return res.status(409).json(operationOutcome('duplicate', msg))
   }
 

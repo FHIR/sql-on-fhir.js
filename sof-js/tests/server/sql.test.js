@@ -1145,8 +1145,34 @@ describe('Library create form + endpoint', () => {
     expect(res.status).toBe(200)
     const html = await res.text()
     expect(html).toContain('New SQL Library')
-    expect(html).toContain('name="dependsOn"')
+    // Dependency rows: a view select + a label input.
+    expect(html).toContain('name="dep_ref_0"')
+    expect(html).toContain('name="dep_label_0"')
     expect(html).toContain('name="sql"')
+  })
+
+  test('POST /Library accepts dependency rows (view select + label)', async () => {
+    const libName = `rowdep_${Date.now()}`
+    const res = await fetch(`${base}/Library`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        name: libName,
+        type: 'sql-view',
+        dep_ref_0: 'http://myig.org/ViewDefinition/patient_demographics',
+        dep_label_0: 'demographics',
+        dep_ref_1: 'http://myig.org/ViewDefinition/patient_multiple_birth',
+        dep_label_1: 'births',
+        sql: 'SELECT * FROM demographics',
+      }).toString(),
+    })
+    expect(res.status).toBe(201)
+    const lib = await res.json()
+    const deps = (lib.relatedArtifact || []).filter((a) => a.type === 'depends-on')
+    expect(deps.map((d) => `${d.label}=${d.resource.split('/').pop()}`).sort()).toEqual([
+      'births=patient_multiple_birth',
+      'demographics=patient_demographics',
+    ])
   })
 
   test('POST /Library builds a sql-view with multiple dependencies from label=ref lines', async () => {
