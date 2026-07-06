@@ -210,12 +210,20 @@ async function resolveLibraryByRef(config, ref) {
  * @param {string} ref - Canonical URL or reference string.
  * @returns {Promise<{kind: 'ViewDefinition'|'Library', resource: object}|null>} resolved dependency or null.
  */
-async function resolveDependency(config, ref) {
+export async function resolveDependency(config, ref) {
   const vd = await resolveViewDefinition(config, ref)
   if (vd) return { kind: 'ViewDefinition', resource: vd }
   const lib = await resolveLibraryByRef(config, ref)
   if (lib) return { kind: 'Library', resource: lib }
   return null
+}
+
+// The logical dependency refs of a view resource: the resources listed in its
+// relatedArtifact[depends-on] (SQLView Libraries; ViewDefinitions usually none).
+export function logicalDependencyRefs(viewResource) {
+  return (viewResource.relatedArtifact || [])
+    .filter((a) => a.type === 'depends-on' && a.resource)
+    .map((a) => a.resource)
 }
 
 /**

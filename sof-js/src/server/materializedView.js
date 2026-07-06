@@ -18,7 +18,7 @@
 import { randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { materializeRefToRows } from './sql.js'
+import { materializeRefToRows, resolveDependency, logicalDependencyRefs } from './sql.js'
 import { search, run, get, all } from './db.js'
 import {
   layout,
@@ -503,6 +503,116 @@ function normalizeInput(body) {
   return out
 }
 
+// ---- build / cascade --------------------------------------------------------
+
+// Candidate view identifiers a materialization may be registered under.
+function viewCandidates(view) {
+  return [view.url, view.id && `${view.resourceType}/${view.id}`].filter(Boolean)
+}
+
+// Find an existing materialization of `view` on `destination` (matched by
+// canonical url or typed ref), or null.
+async function findMaterialization(db, view, destination) {
+  const candidates = viewCandidates(view)
+  if (!candidates.length) return null
+  const ph = candidates.map(() => '?').join(', ')
+  const row = await get(db, `SELECT resource FROM ${MV_TABLE} WHERE view IN (${ph}) AND destination = ?`, [
+    ...candidates,
+    destination,
+  ])
+  return row ? JSON.parse(row.resource) : null
+}
+
+// Pick a relation name for `name` on `destination` that is free, appending a
+// short suffix if a different view already claims it.
+async function uniqueName(db, destination, name) {
+  let candidate = name
+  for (let i = 2; ; i++) {
+    const taken = await get(db, `SELECT id FROM ${MV_TABLE} WHERE destination = ? AND name = ?`, [
+      destination,
+      candidate,
+    ])
+    if (!taken) return candidate
+    candidate = `${name}_${i}`
+  }
+}
+
+// Build a relation for a view on a destination and insert its MaterializedView
+// record. Logical dependencies are materialized first (topological), unless the
+// caller pins `dependsOn` explicitly.
+async function buildMaterialization(config, { viewRef, view, destination, name, extra = {}, stack }) {
+  const db = config.db
+
+  // 1. Resolve dependencies: honour explicit pins, else cascade the logical DAG.
+  let dependsOn = extra.dependsOn
+  if (!dependsOn) {
+    const depRecords = []
+    for (const depRef of logicalDependencyRefs(view)) {
+      depRecords.push(await ensureMaterialized(config, depRef, destination, stack))
+    }
+    dependsOn = depRecords.map((r) => ({ reference: `MaterializedView/${r.id}` }))
+  }
+
+  // 2. Build this relation.
+  const built = await materializeRefToRows(config, viewRef)
+  await buildRelation(db, destination, name, built.columns, built.rows)
+
+  // 3. Insert the record.
+  const id = `mv-${randomUUID().slice(0, 8)}`
+  const resource = {
+    resourceType: 'MaterializedView',
+    id,
+    ...(extra.identifier ? { identifier: extra.identifier } : {}),
+    view: viewRef,
+    destination,
+    name,
+    type: extra.type || {
+      system: 'http://sql-on-fhir.org/materialize',
+      code: DESTINATIONS[destination].kind,
+    },
+    ...(extra.staleness ? { staleness: extra.staleness } : {}),
+    ...(dependsOn && dependsOn.length ? { dependsOn } : {}),
+    status: 'ready',
+    refreshedAt: new Date().toISOString(),
+    rowCount: built.rows.length,
+  }
+  await run(
+    db,
+    `INSERT INTO ${MV_TABLE} (id, view, destination, name, status, resource) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, viewRef, destination, name, 'ready', JSON.stringify(resource)],
+  )
+  return resource
+}
+
+// Ensure a view (given by ref) is materialized on a destination: reuse an
+// existing materialization or create one, cascading its dependencies. Cycle-
+// guarded via `stack` (a Set of view keys on the current path).
+async function ensureMaterialized(config, ref, destination, stack) {
+  const db = config.db
+  const resolved = await resolveDependency(config, ref)
+  if (!resolved) {
+    throw Object.assign(new Error(`View not found: ${ref}`), { status: 404, code: 'not-found' })
+  }
+  const view = resolved.resource
+  const existing = await findMaterialization(db, view, destination)
+  if (existing) return existing
+
+  const key = view.url || `${view.resourceType}/${view.id}`
+  if (stack.has(key)) {
+    throw Object.assign(new Error(`Dependency cycle detected at ${key}`), {
+      status: 422,
+      code: 'cycle',
+    })
+  }
+  stack.add(key)
+  try {
+    const name = await uniqueName(db, destination, sanitizeIdent(deriveName(key)))
+    return await buildMaterialization(config, { viewRef: key, view, destination, name, stack })
+  } finally {
+    stack.delete(key)
+  }
+}
+
 // ---- handlers ---------------------------------------------------------------
 
 async function postMaterializedView(req, res) {
@@ -553,35 +663,22 @@ async function postMaterializedView(req, res) {
       )
     }
 
-    const built = await materializeRefToRows(config, view)
-    await buildRelation(db, destination, name, built.columns, built.rows)
+    // Resolve the view so its logical dependencies can be cascaded onto the
+    // same destination (the DAG is built in topological order, deps first).
+    const resolved = await resolveDependency(config, view)
+    if (!resolved) return sendError(req, res, 404, 'not-found', `View not found: ${view}`)
 
-    const id = `mv-${randomUUID().slice(0, 8)}`
     const input = normalizeInput(body)
-    const resource = {
-      resourceType: 'MaterializedView',
-      id,
-      ...(input.identifier ? { identifier: input.identifier } : {}),
-      view,
+    const resource = await buildMaterialization(config, {
+      viewRef: view,
+      view: resolved.resource,
       destination,
       name,
-      type: input.type || {
-        system: 'http://sql-on-fhir.org/materialize',
-        code: DESTINATIONS[destination].kind,
-      },
-      ...(input.staleness ? { staleness: input.staleness } : {}),
-      ...(input.dependsOn ? { dependsOn: input.dependsOn } : {}),
-      status: 'ready',
-      refreshedAt: new Date().toISOString(),
-      rowCount: built.rows.length,
-    }
-    await run(
-      db,
-      `INSERT INTO ${MV_TABLE} (id, view, destination, name, status, resource) VALUES (?, ?, ?, ?, ?, ?)`,
-      [id, view, destination, name, 'ready', JSON.stringify(resource)],
-    )
+      extra: input,
+      stack: new Set([resolved.resource.url || `${resolved.resource.resourceType}/${resolved.resource.id}`]),
+    })
     if (isHtml(req)) return res.redirect(303, '/MaterializedView')
-    res.setHeader('Location', `/MaterializedView/${id}`)
+    res.setHeader('Location', `/MaterializedView/${resource.id}`)
     res.status(201).json(resource)
   } catch (err) {
     sendError(req, res, err.status || 500, err.code || 'exception', err.message || String(err))

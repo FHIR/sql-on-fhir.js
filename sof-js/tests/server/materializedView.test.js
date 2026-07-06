@@ -392,6 +392,68 @@ describe('$sqlquery-run with destination — query over materializations', () =>
   })
 })
 
+describe('cascading materialization of dependent views', () => {
+  // A 2-level SQLView chain:
+  //   female-demographics-view -> patient-demographics-view -> patient_demographics
+  const TOP = 'http://myig.org/Library/female-demographics-view'
+  const MID = 'http://myig.org/Library/patient-demographics-view'
+  const LEAF = 'http://myig.org/ViewDefinition/patient_demographics'
+
+  const searchOne = async (view, destination) =>
+    (
+      await fetch(`${base}/MaterializedView?view=${encodeURIComponent(view)}&destination=${destination}`)
+    ).json()
+
+  test('materializing a SQLView cascades its whole dependency DAG onto the destination', async () => {
+    const res = await postMV({ view: TOP, destination: 'csv', name: 'female_demo' })
+    expect(res.status).toBe(201)
+    const mv = await res.json()
+
+    // Top links to its immediate dependency's materialization.
+    expect(Array.isArray(mv.dependsOn)).toBe(true)
+    expect(mv.dependsOn.length).toBe(1)
+    expect(mv.dependsOn[0].reference).toMatch(/^MaterializedView\/mv-/)
+
+    // The mid-level SQLView was materialized on the same destination...
+    const mid = await searchOne(MID, 'csv')
+    expect(mid.total).toBe(1)
+    // ...and it in turn links to the leaf ViewDefinition materialization.
+    expect(mid.entry[0].resource.dependsOn?.length).toBe(1)
+
+    // The leaf ViewDefinition is materialized on the destination too.
+    const leaf = await searchOne(LEAF, 'csv')
+    expect(leaf.total).toBeGreaterThanOrEqual(1)
+
+    // The top relation is queryable and non-trivial.
+    expect(mv.rowCount).toBeGreaterThan(0)
+    const data = await (await fetch(`${base}/MaterializedView/${mv.id}/$data`)).json()
+    expect(data.length).toBe(mv.rowCount)
+  })
+
+  test('an already-materialized dependency is reused, not duplicated', async () => {
+    // patient_demographics was materialized on csv by the cascade above; a new
+    // dependent must reuse it rather than create a second one.
+    const before = await searchOne(LEAF, 'csv')
+    const res = await postMV({
+      view: 'http://myig.org/Library/empty-result-view',
+      destination: 'csv',
+      name: 'empty_csv',
+    })
+    expect(res.status).toBe(201)
+    const after = await searchOne(LEAF, 'csv')
+    expect(after.total).toBe(before.total) // reused; no new leaf materialization
+  })
+
+  test('a dependency cycle is rejected', async () => {
+    const res = await postMV({
+      view: 'http://myig.org/Library/cycle-view-a',
+      destination: 'csv',
+      name: 'cyc',
+    })
+    expect(res.status).toBe(422)
+  })
+})
+
 // Post a ViewDefinition through the create endpoint, returning its canonical url.
 async function postView(vd) {
   const res = await fetch(`${base}/ViewDefinition`, {
