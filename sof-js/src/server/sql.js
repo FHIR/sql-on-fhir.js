@@ -10,13 +10,14 @@
  */
 
 import sqlite3 from 'sqlite3'
-import { read, search, run as dbRun, all as dbAll, close as dbClose } from './db.js'
+import { read, search, saveResource, run as dbRun, all as dbAll, close as dbClose } from './db.js'
 import { evaluate } from '../index.js'
 import {
   layout,
   escapeHtml,
   rowsTable,
   FORM_INPUT,
+  formField,
   legend,
   breadcrumb,
   tableIcon,
@@ -24,7 +25,7 @@ import {
   pageHeader,
   emptyState,
 } from './ui.js'
-import { isHtml, renderOperationDefinition, wrapBundle, csvField } from './utils.js'
+import { isHtml, renderOperationDefinition, wrapBundle, csvField, sanitizeIdent } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 import { runFromDestination, availableDestinations } from './materializedView.js'
 
@@ -1410,7 +1411,11 @@ function renderLibrariesHtml(res, libraries) {
     layout(`
       <div class="container mx-auto p-4 max-w-4xl">
         ${breadcrumb('<span>SQL Libraries</span>')}
-        ${pageHeader('SQL Libraries', '<a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>')}
+        ${pageHeader(
+          'SQL Libraries',
+          `<a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>
+           <a href="/Library/new" class="btn">New SQLView</a>`,
+        )}
         ${body}
       </div>
     `),
@@ -1425,6 +1430,98 @@ export async function getLibraryListEndpoint(req, res) {
     res.setHeader('Content-Type', 'application/fhir+json')
     res.json(wrapBundle(libraries))
   }
+}
+
+const SQL_TEXT_URL = 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text'
+
+// Parse the Dependencies textarea: one `label = ref` per line.
+function parseDependencyLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const eq = line.indexOf('=')
+      if (eq === -1) return { label: sanitizeIdent(line.split('/').pop()), resource: line }
+      return { label: line.slice(0, eq).trim(), resource: line.slice(eq + 1).trim() }
+    })
+}
+
+function renderLibraryNewForm(res, values = {}) {
+  const name = values.name || 'my_view'
+  const type = values.type || 'sql-view'
+  const sql = values.sql || 'SELECT * FROM my_dependency'
+  const dependsOn = values.dependsOn || 'my_dependency = http://myig.org/ViewDefinition/patient_demographics'
+  const typeOpts = ['sql-view', 'sql-query']
+    .map((t) => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`)
+    .join('')
+  const errorHtml = values.error
+    ? `<div class="p-3 border border-red-300 bg-red-50 rounded text-red-700 text-sm">${escapeHtml(values.error)}</div>`
+    : ''
+  res.setHeader('Content-Type', 'text/html')
+  res.send(
+    layout(`
+      <div class="container mx-auto p-4 max-w-2xl">
+        ${breadcrumb('<a href="/Library" class="text-blue-500 hover:text-blue-700">SQL Libraries</a>', '<span>New</span>')}
+        <h1 class="mt-4 text-2xl font-bold">New SQL Library</h1>
+        <form method="post" action="/Library" class="mt-4 space-y-4">
+          ${errorHtml}
+          <div class="flex gap-3">
+            <div class="flex-1">${formField('Name', '', `<input name="name" value="${escapeHtml(name)}" class="${FORM_INPUT}" placeholder="my_view" />`)}</div>
+            <div class="w-56">${formField('Type', '', `<select name="type" class="${FORM_INPUT}">${typeOpts}</select>`)}</div>
+          </div>
+          ${formField('Dependencies', 'one <code>label = view-ref</code> per line — each becomes a virtual table', `<textarea name="dependsOn" rows="4" class="${FORM_INPUT} font-mono text-xs">${escapeHtml(dependsOn)}</textarea>`)}
+          ${formField('SQL', 'references the dependency labels as tables', `<textarea name="sql" rows="8" class="${FORM_INPUT} font-mono text-xs">${escapeHtml(sql)}</textarea>`)}
+          <button type="submit" class="btn">Create</button>
+        </form>
+      </div>
+    `),
+  )
+}
+
+export function getLibraryNewForm(req, res) {
+  renderLibraryNewForm(res)
+}
+
+export async function postLibraryEndpoint(req, res) {
+  const body = req.body || {}
+  const name = (body.name || '').trim()
+  if (!name) {
+    const msg = 'Library.name is required'
+    if (isHtml(req)) return renderLibraryNewForm(res, { ...body, error: msg })
+    return res.status(400).json(operationOutcome('required', msg))
+  }
+  const type = body.type === 'sql-query' ? 'sql-query' : 'sql-view'
+  const sql = body.sql || ''
+  const relatedArtifact = parseDependencyLines(body.dependsOn).map((d) => ({
+    type: 'depends-on',
+    label: d.label,
+    resource: d.resource,
+  }))
+  const id = sanitizeIdent(name).toLowerCase()
+
+  const existing = await read(req.config, 'Library', id)
+  if (existing) {
+    const msg = `A Library with id '${id}' already exists; choose a different name.`
+    if (isHtml(req)) return renderLibraryNewForm(res, { ...body, error: msg })
+    return res.status(409).json(operationOutcome('duplicate', msg))
+  }
+
+  const library = {
+    resourceType: 'Library',
+    id,
+    url: `http://myig.org/Library/${id}`,
+    name,
+    status: 'active',
+    type: { coding: [{ code: type }] },
+    ...(relatedArtifact.length ? { relatedArtifact } : {}),
+    content: [{ contentType: 'application/sql', extension: [{ url: SQL_TEXT_URL, valueString: sql }] }],
+  }
+  await saveResource(req.config, 'Library', library)
+
+  if (isHtml(req)) return res.redirect(303, `/Library/${id}/$sqlquery-run/form`)
+  res.setHeader('Location', `/Library/${id}`)
+  res.status(201).json(library)
 }
 
 export function mountRoutes(app) {
@@ -1446,7 +1543,9 @@ export function mountRoutes(app) {
   app.get('/\\$sqlquery-run/form/parameters', getSqlQueryRunFormParameters)
   app.get('/Library/\\$sqlquery-run/form/parameters', getSqlQueryRunFormParameters)
 
-  // Custom Library list page (overrides the generic FHIR resource list for
-  // /Library). Mounted before the FHIR catch-all in server.js.
+  // Custom Library list page + create form (override the generic FHIR resource
+  // routes for /Library). Mounted before the FHIR catch-all in server.js.
   app.get('/Library', getLibraryListEndpoint)
+  app.get('/Library/new', getLibraryNewForm)
+  app.post('/Library', postLibraryEndpoint)
 }

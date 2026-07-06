@@ -453,6 +453,44 @@ describe('cascading materialization of dependent views', () => {
     expect(res.status).toBe(422)
   })
 
+  test('a fan-out view (multiple dependencies) materializes both branches', async () => {
+    // Author a sql-view that joins two ViewDefinitions, then materialize it —
+    // the cascade must materialize both dependencies on the destination.
+    await fetch(`${base}/Library`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        name: 'birth_summary_mv',
+        type: 'sql-view',
+        dependsOn:
+          'demographics = http://myig.org/ViewDefinition/patient_demographics\nbirths = http://myig.org/ViewDefinition/patient_multiple_birth',
+        sql: 'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id',
+      }).toString(),
+    })
+    // Materialize on csv (leaves the sqlite (view, destination) pairs free for
+    // other tests). Both dependencies get materialized/reused on csv.
+    const res = await postMV({
+      view: 'http://myig.org/Library/birth_summary_mv',
+      destination: 'csv',
+      name: 'birth_summary_rel',
+    })
+    expect(res.status).toBe(201)
+    const mv = await res.json()
+    expect(mv.dependsOn.length).toBe(2) // fan-out: two branches
+    expect(mv.rowCount).toBeGreaterThan(0)
+
+    // Both dependency ViewDefinitions are now materialized on csv.
+    for (const v of [
+      'http://myig.org/ViewDefinition/patient_demographics',
+      'http://myig.org/ViewDefinition/patient_multiple_birth',
+    ]) {
+      const s = await (
+        await fetch(`${base}/MaterializedView?view=${encodeURIComponent(v)}&destination=csv`)
+      ).json()
+      expect(s.total).toBeGreaterThanOrEqual(1)
+    }
+  })
+
   test('the New-form fields fragment derives the name and previews dependencies', async () => {
     const url = new URL(`${base}/MaterializedView/new/fields`)
     url.searchParams.set('view', 'http://myig.org/Library/female-demographics-view')

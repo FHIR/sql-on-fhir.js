@@ -9,6 +9,13 @@ export function getDb(dbPath = process.env.DB_PATH || './db.sqlite') {
     fs.mkdirSync(dbDir, { recursive: true })
   }
   const db = new sqlite3.Database(dbPath)
+  // WAL lets a second connection (e.g. a test opening the same file) read and
+  // write concurrently instead of failing with SQLITE_BUSY; busy_timeout waits
+  // rather than erroring when a lock is briefly held.
+  db.serialize(() => {
+    db.run('PRAGMA journal_mode = WAL')
+    db.run('PRAGMA busy_timeout = 5000')
+  })
   return db
 }
 

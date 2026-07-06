@@ -1,5 +1,5 @@
 node_modules/
 bun.lockb
-db.sqlite
+db.sqlite*
 mv-csv/
 .codex-results/

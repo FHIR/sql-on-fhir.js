@@ -1139,6 +1139,44 @@ describe('Library list', () => {
   })
 })
 
+describe('Library create form + endpoint', () => {
+  test('GET /Library/new serves an HTML form (not treated as :id)', async () => {
+    const res = await fetch(`${base}/Library/new`, { headers: { Accept: 'text/html' } })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('New SQL Library')
+    expect(html).toContain('name="dependsOn"')
+    expect(html).toContain('name="sql"')
+  })
+
+  test('POST /Library builds a sql-view with multiple dependencies from label=ref lines', async () => {
+    // Unique per run: sql.test.js uses the shared ./db.sqlite, which persists
+    // created Libraries across runs (a fixed name would 409 on the second run).
+    const libName = `birth_summary_${Date.now()}`
+    const res = await fetch(`${base}/Library`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        name: libName,
+        type: 'sql-view',
+        dependsOn:
+          'demographics = http://myig.org/ViewDefinition/patient_demographics\nbirths = http://myig.org/ViewDefinition/patient_multiple_birth',
+        sql: 'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id',
+      }).toString(),
+    })
+    expect(res.status).toBe(201)
+    const lib = await res.json()
+    expect(lib.id).toBe(libName)
+    expect(lib.type.coding[0].code).toBe('sql-view')
+    const deps = (lib.relatedArtifact || []).filter((a) => a.type === 'depends-on')
+    expect(deps.map((d) => d.label).sort()).toEqual(['births', 'demographics'])
+
+    // Readable back.
+    const got = await (await fetch(`${base}/Library/${libName}?_format=json`)).json()
+    expect(got.resourceType).toBe('Library')
+  })
+})
+
 // Helper builders for inline Library resources used by tests.
 
 function inlinePatientCountLibrary() {
