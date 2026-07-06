@@ -7,6 +7,7 @@ import {
   listSection,
   pageHeader,
   emptyState,
+  jsonBlock,
   FORM_INPUT,
 } from './ui.js'
 import { search, read, saveResource } from './db.js'
@@ -108,24 +109,19 @@ export async function getVeiwListEndpoint(req, res) {
 }
 
 function renderViewDefinition(req, res, resource) {
-  const resourceJson = JSON.stringify(resource, null, 2)
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
-        <div class="container mx-auto p-4">
-            <div class="flex items-center space-x-4">
-                <a href="/" class="text-blue-500 hover:text-blue-700">Home</a>
-                <span class="text-gray-500">/</span>
-                <a href="/ViewDefinition" class="text-blue-500 hover:text-blue-700">View Definitions</a>
-                <span class="text-gray-500">/</span>
-                <a href="#" class="text-blue-500 hover:text-blue-700">${resource.name}</a>
-            </div>
-            <div class="mt-4 flex items-center space-x-4 border-b border-gray-200 pb-2">  
-                <h1 class="flex-1 text-2xl font-bold">View Definition</h1>
-                <a href="/ViewDefinition/${resource.id}/$run/form" class="border border-blue-500 rounded-md px-2 py-1 text-sm text-blue-500 hover:text-blue-700">$run</a>
-            </div>
-            <pre class="bg-gray-100 p-4 rounded-md text-xs">${resourceJson}</pre>
-
+        <div class="container mx-auto p-4 max-w-4xl">
+            ${breadcrumb(
+              '<a href="/ViewDefinition" class="text-blue-500 hover:text-blue-700">View Definitions</a>',
+              `<span>${escapeHtml(resource.name || resource.id)}</span>`,
+            )}
+            ${pageHeader(
+              escapeHtml(resource.name || resource.id),
+              `<a href="/ViewDefinition/${resource.id}/$run/form" class="btn">$run</a>`,
+            )}
+            ${jsonBlock(resource)}
         </div>
     `),
   )

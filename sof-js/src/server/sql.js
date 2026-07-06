@@ -12,7 +12,18 @@
 import sqlite3 from 'sqlite3'
 import { read, search, run as dbRun, all as dbAll, close as dbClose } from './db.js'
 import { evaluate } from '../index.js'
-import { layout, escapeHtml, rowsTable, FORM_INPUT, legend } from './ui.js'
+import {
+  layout,
+  escapeHtml,
+  rowsTable,
+  FORM_INPUT,
+  legend,
+  breadcrumb,
+  tableIcon,
+  listSection,
+  pageHeader,
+  emptyState,
+} from './ui.js'
 import { isHtml, renderOperationDefinition, wrapBundle, csvField } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 import { runFromDestination, availableDestinations } from './materializedView.js'
@@ -1353,66 +1364,46 @@ function libraryTypeLabel(lib) {
   return 'Unknown'
 }
 
-// Render a Library list page with a Type column that distinguishes SQL Query
-// from SQL View, mirroring the ViewDefinition list.
-function renderLibrariesHtml(res, libraries) {
-  const rows = libraries
-    .map((lib) => {
-      const name = lib.name || lib.id
-      const title = lib.title || ''
-      const url = lib.url || ''
-      const typeLabel = libraryTypeLabel(lib)
-      return `
-        <tr>
-          <td class="border border-gray-200 p-2">
-            <a class="text-blue-500 hover:text-blue-700"
-               href="/Library/${escapeHtml(lib.id)}">
-              ${escapeHtml(name)}
-            </a>
-          </td>
-          <td class="border border-gray-200 p-2">${escapeHtml(title)}</td>
-          <td class="border border-gray-200 p-2 text-xs">${escapeHtml(url)}</td>
-          <td class="border border-gray-200 p-2">
-            <span class="inline-block rounded px-2 py-0.5 text-xs font-medium
-                         ${typeLabel === 'SQL View' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
-              ${escapeHtml(typeLabel)}
-            </span>
-          </td>
-          <td class="border border-gray-200 p-2">
-            <a class="text-blue-500 hover:text-blue-700"
-               href="/Library/${escapeHtml(lib.id)}/$sqlquery-run/form">
-              $sqlquery-run
-            </a>
-          </td>
-        </tr>
-      `
-    })
-    .join('')
+function libraryRow(lib) {
+  const name = lib.name || lib.id
+  const sub = lib.title || lib.url || ''
+  return `
+      <li class="group flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+        ${tableIcon()}
+        <div class="flex-1 min-w-0">
+          <a href="/Library/${escapeHtml(lib.id)}"
+             class="font-semibold text-blue-600 hover:underline truncate">${escapeHtml(name)}</a>
+          <div class="mt-0.5 text-xs text-gray-500 truncate font-mono" title="${escapeHtml(lib.url || '')}">${escapeHtml(sub)}</div>
+        </div>
+        <div class="shrink-0 flex items-center gap-3 text-sm">
+          <a class="text-blue-600 hover:underline opacity-60 group-hover:opacity-100"
+             href="/Library/${escapeHtml(lib.id)}/$sqlquery-run/form">$sqlquery-run</a>
+        </div>
+      </li>`
+}
 
+// Render a Library list page grouped by type (SQL Query / SQL View), mirroring
+// the ViewDefinition and MaterializedView list pages.
+function renderLibrariesHtml(res, libraries) {
+  const groups = new Map()
+  for (const lib of libraries) {
+    const key = libraryTypeLabel(lib)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(lib)
+  }
+  const body = libraries.length
+    ? [...groups.keys()]
+        .sort()
+        .map((label) => listSection(label, groups.get(label), 'library', libraryRow))
+        .join('')
+    : emptyState('No SQL libraries.')
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
-      <div class="container mx-auto p-4">
-        <div class="flex items-center space-x-4">
-          <a href="/" class="text-blue-500 hover:text-blue-700">Home</a>
-          <span class="text-gray-500">/</span>
-        </div>
-        <div class="mt-4 flex items-center space-x-4 border-b border-gray-200 pb-2">
-          <h1 class="flex-1 text-2xl font-bold">SQL libraries</h1>
-          <a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>
-        </div>
-        <table class="mt-4 table-auto border-collapse border border-gray-200">
-          <thead>
-            <tr>
-              <th class="bg-gray-100 border border-gray-200 p-2">Name</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">Title</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">URL</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">Type</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">Run</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+      <div class="container mx-auto p-4 max-w-4xl">
+        ${breadcrumb('<span>SQL Libraries</span>')}
+        ${pageHeader('SQL Libraries', '<a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>')}
+        ${body}
       </div>
     `),
   )

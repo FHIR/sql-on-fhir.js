@@ -11,7 +11,7 @@ import { mountRoutes as mountSqlQueryRunRoutes } from './server/sql.js'
 import { mountRoutes as mountMaterializedViewRoutes } from './server/materializedView.js'
 import { migrate, getDb, select, tableExists } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
-import { layout } from './server/ui.js'
+import { layout, tableIcon } from './server/ui.js'
 
 async function countRows(config, table) {
   try {
@@ -24,7 +24,7 @@ async function countRows(config, table) {
 }
 
 const ICONS = {
-  view: `<svg class="w-6 h-6" viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm6.5.75v3h3v-3Zm3 4.5h-3v3h3Zm1.5 3h3v-3h-3Zm3-4.5v-3h-3v3Zm-9-3h-3v3h3Zm-3 4.5v3h3v-3Z"/></svg>`,
+  view: tableIcon('w-6 h-6'),
   sql: `<svg class="w-6 h-6" viewBox="0 0 16 16" fill="currentColor"><path d="M4.72 3.22a.75.75 0 0 1 1.06 1.06L2.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06L.47 8.53a.75.75 0 0 1 0-1.06Zm6.56 0a.75.75 0 1 0-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 1 0 1.06 1.06l4.25-4.25a.75.75 0 0 0 0-1.06Z"/></svg>`,
   matview: `<svg class="w-6 h-6" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c3.31 0 6 1.12 6 2.5v11C14 14.88 11.31 16 8 16s-6-1.12-6-2.5v-11C2 1.12 4.69 0 8 0Zm4.5 5.55C11.4 6.13 9.8 6.5 8 6.5s-3.4-.37-4.5-.95V8.5c0 .3 1.5 1 4.5 1s4.5-.7 4.5-1Zm0 4C11.4 10.13 9.8 10.5 8 10.5s-3.4-.37-4.5-.95v3.95c0 .3 1.5 1 4.5 1s4.5-.7 4.5-1ZM8 5c3 0 4.5-.7 4.5-1S11 3 8 3s-4.5.7-4.5 1S5 5 8 5Z"/></svg>`,
 }

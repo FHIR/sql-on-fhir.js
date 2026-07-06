@@ -34,6 +34,13 @@ export function pageHeader(title, actions = '') {
     </div>`
 }
 
+// A pretty-printed JSON block for resource detail pages.
+export function jsonBlock(obj) {
+  return `<pre class="mt-4 bg-gray-100 p-4 rounded-md text-xs overflow-x-auto">${escapeHtml(
+    JSON.stringify(obj, null, 2),
+  )}</pre>`
+}
+
 // The empty-state box used by list pages.
 export function emptyState(message) {
   return `<div class="mt-6 border border-dashed border-gray-300 rounded-md p-8 text-center text-gray-500">${message}</div>`
@@ -79,11 +86,12 @@ export function statusPill(status) {
 // A titled list section: a badge + item count over a bordered <ul>. `rowFn`
 // renders each item to an <li>.
 export function listSection(badge, items, noun, rowFn) {
+  const plural = items.length === 1 ? noun : noun.endsWith('y') ? noun.slice(0, -1) + 'ies' : noun + 's'
   return `
     <section class="mt-6">
       <div class="flex items-center gap-2 mb-2">
         <span class="px-2 py-0.5 rounded bg-slate-100 font-mono text-sm font-semibold">${escapeHtml(badge)}</span>
-        <span class="text-gray-400 text-sm">${items.length} ${noun}${items.length === 1 ? '' : 's'}</span>
+        <span class="text-gray-400 text-sm">${items.length} ${plural}</span>
       </div>
       <ul class="border border-gray-200 rounded-md divide-y divide-gray-200 overflow-hidden">
         ${items.map(rowFn).join('')}

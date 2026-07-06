@@ -1133,11 +1133,9 @@ describe('Library list', () => {
     })
     expect(res.status).toBe(200)
     const html = await res.text()
-    // Both type labels must appear somewhere in the rendered HTML.
+    // Both type labels must appear as section badges grouping the libraries.
     expect(html).toContain('SQL Query')
     expect(html).toContain('SQL View')
-    // The table must include a Type heading so the column is labelled.
-    expect(html).toContain('Type')
   })
 })
 
