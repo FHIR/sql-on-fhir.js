@@ -1,6 +1,15 @@
 import { wrapBundle, isHtml, sanitizeIdent } from './utils.js'
-import { layout, escapeHtml } from './ui.js'
-import { search, read } from './db.js'
+import {
+  layout,
+  escapeHtml,
+  breadcrumb,
+  tableIcon,
+  listSection,
+  pageHeader,
+  emptyState,
+  FORM_INPUT,
+} from './ui.js'
+import { search, read, saveResource } from './db.js'
 
 const FHIR_RESOURCE_TYPES = [
   'Patient',
@@ -25,30 +34,10 @@ function sanitizeId(s) {
   return sanitizeIdent(trimmed).toLowerCase()
 }
 
-function saveViewDefinition(config, resource) {
-  return new Promise((resolve, reject) => {
-    config.db.run(
-      `CREATE TABLE IF NOT EXISTS viewdefinition ( id text PRIMARY KEY, resource JSON);`,
-      (err) => {
-        if (err) return reject(err)
-        config.db.run(
-          `INSERT OR REPLACE INTO viewdefinition (id, resource) VALUES (?, ?)`,
-          [resource.id, JSON.stringify(resource)],
-          (e) => (e ? reject(e) : resolve(resource)),
-        )
-      },
-    )
-  })
-}
-
-const VIEW_ICON = `<svg class="w-4 h-4 text-gray-400 shrink-0" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-  <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm6.5.75v3h3v-3Zm3 4.5h-3v3h3Zm1.5 3h3v-3h-3Zm3-4.5v-3h-3v3Zm-9-3h-3v3h3Zm-3 4.5v3h3v-3Z"/>
-</svg>`
-
 function viewRow(resource) {
   return `
       <li class="group flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-        ${VIEW_ICON}
+        ${tableIcon()}
         <div class="flex-1 min-w-0">
           <a href="/ViewDefinition/${resource.id}"
              class="font-semibold text-blue-600 hover:underline truncate">${escapeHtml(resource.name || resource.id)}</a>
@@ -60,18 +49,7 @@ function viewRow(resource) {
       </li>`
 }
 
-function viewGroup(resourceType, items) {
-  return `
-    <section class="mt-6">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="px-2 py-0.5 rounded bg-slate-100 font-mono text-sm font-semibold">${escapeHtml(resourceType)}</span>
-        <span class="text-gray-400 text-sm">${items.length} view${items.length === 1 ? '' : 's'}</span>
-      </div>
-      <ul class="border border-gray-200 rounded-md divide-y divide-gray-200 overflow-hidden">
-        ${items.map(viewRow).join('')}
-      </ul>
-    </section>`
-}
+const viewGroup = (resourceType, items) => listSection(resourceType, items, 'view', viewRow)
 
 function renderViewDefinitions(req, res, resources) {
   const groups = new Map()
@@ -85,25 +63,21 @@ function renderViewDefinitions(req, res, resources) {
         .sort()
         .map((rt) => viewGroup(rt, groups.get(rt)))
         .join('')
-    : `<div class="mt-6 border border-dashed border-gray-300 rounded-md p-8 text-center text-gray-500">
-             No view definitions yet. <a href="/ViewDefinition/new" class="text-blue-600 hover:underline">Create one</a>.
-           </div>`
+    : emptyState(
+        'No view definitions yet. <a href="/ViewDefinition/new" class="text-blue-600 hover:underline">Create one</a>.',
+      )
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
         <div class="container mx-auto p-4 max-w-4xl">
-            <div class="flex gap-2 items-center text-sm">
-                <a href="/" class="text-blue-500 hover:text-blue-700">Home</a>
-                <span class="text-gray-400">/</span>
-                <span>View Definitions</span>
-            </div>
-            <div class="mt-4 flex flex-wrap items-center gap-2 border-b border-gray-200 pb-2">
-                <h1 class="flex-1 text-2xl font-bold">View Definitions</h1>
-                <a href="/ViewDefinition/$viewdefinition-export" class="btn">$viewdefinition-export</a>
-                <a href="/ViewDefinition/$validate" class="btn">$validate?</a>
-                <a href="/ViewDefinition/$evaluate" class="btn">$evaluate</a>
-                <a href="/ViewDefinition/new" class="btn">New ViewDefinition</a>
-            </div>
+            ${breadcrumb('<span>View Definitions</span>')}
+            ${pageHeader(
+              'View Definitions',
+              `<a href="/ViewDefinition/$viewdefinition-export" class="btn">$viewdefinition-export</a>
+               <a href="/ViewDefinition/$validate" class="btn">$validate?</a>
+               <a href="/ViewDefinition/$evaluate" class="btn">$evaluate</a>
+               <a href="/ViewDefinition/new" class="btn">New ViewDefinition</a>`,
+            )}
             ${body}
         </div>
     `),
@@ -179,8 +153,6 @@ export async function getVeiwEndpoint(req, res) {
   }
 }
 
-const NEW_INPUT = 'border border-gray-300 rounded p-2 w-full'
-
 function viewNewTemplate(name, resource) {
   return JSON.stringify(
     {
@@ -212,35 +184,32 @@ function renderNewForm(req, res, values = {}) {
   res.send(
     layout(`
         <div class="container mx-auto p-4 max-w-2xl">
-            <div class="flex gap-2 items-center text-sm">
-                <a href="/" class="text-blue-500 hover:text-blue-700">Home</a>
-                <span class="text-gray-400">/</span>
-                <a href="/ViewDefinition" class="text-blue-500 hover:text-blue-700">View Definitions</a>
-                <span class="text-gray-400">/</span>
-                <span>New</span>
-            </div>
+            ${breadcrumb(
+              '<a href="/ViewDefinition" class="text-blue-500 hover:text-blue-700">View Definitions</a>',
+              '<span>New</span>',
+            )}
             <h1 class="mt-4 text-2xl font-bold">New View Definition</h1>
             <form method="post" action="/ViewDefinition" class="mt-4 space-y-4">
                 ${errorHtml}
                 <div class="flex gap-3">
                     <div class="flex-1">
                         <label class="block font-semibold mb-1">Name</label>
-                        <input name="name" value="${escapeHtml(name)}" class="${NEW_INPUT}" placeholder="my_view" />
+                        <input name="name" value="${escapeHtml(name)}" class="${FORM_INPUT}" placeholder="my_view" />
                     </div>
                     <div class="flex-1">
                         <label class="block font-semibold mb-1">Resource</label>
-                        <select name="resource" class="${NEW_INPUT}">${resourceOpts}</select>
+                        <select name="resource" class="${FORM_INPUT}">${resourceOpts}</select>
                     </div>
                     <div class="w-40">
                         <label class="block font-semibold mb-1">Status</label>
-                        <select name="status" class="${NEW_INPUT}">${statusOpts}</select>
+                        <select name="status" class="${FORM_INPUT}">${statusOpts}</select>
                     </div>
                 </div>
                 <div>
                     <label class="block font-semibold mb-1">Definition
                         <span class="text-gray-400 font-normal text-sm">— full ViewDefinition JSON; Name / Resource / Status above override these fields</span>
                     </label>
-                    <textarea name="definition" rows="16" class="${NEW_INPUT} font-mono text-xs">${escapeHtml(definition)}</textarea>
+                    <textarea name="definition" rows="16" class="${FORM_INPUT} font-mono text-xs">${escapeHtml(definition)}</textarea>
                 </div>
                 <button type="submit" class="btn">Create</button>
             </form>
@@ -306,7 +275,7 @@ export async function postViewEndpoint(req, res) {
   }
 
   try {
-    await saveViewDefinition(req.config, resource)
+    await saveResource(req.config, 'ViewDefinition', resource)
   } catch (e) {
     if (isHtml(req)) return renderNewForm(req, res, { ...body, error: e.message })
     return res.status(500).json({

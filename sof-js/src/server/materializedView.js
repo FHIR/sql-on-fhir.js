@@ -20,7 +20,20 @@ import fs from 'fs'
 import path from 'path'
 import { materializeRefToRows } from './sql.js'
 import { search, run, get, all } from './db.js'
-import { layout, escapeHtml } from './ui.js'
+import {
+  layout,
+  escapeHtml,
+  breadcrumb,
+  statusPill,
+  tableIcon,
+  listSection,
+  rowsTable,
+  FORM_INPUT,
+  formField,
+  legend,
+  pageHeader,
+  emptyState,
+} from './ui.js'
 import { isHtml, sanitizeIdent, csvField } from './utils.js'
 
 const MV_TABLE = 'materializedview'
@@ -307,33 +320,10 @@ export async function runFromDestination(config, view, destination) {
 
 // ---- HTML UI ----------------------------------------------------------------
 
-const breadcrumb = (...parts) =>
-  `<div class="flex gap-2 items-center text-sm">${[
-    '<a href="/" class="text-blue-500 hover:text-blue-700">Home</a>',
-    ...parts,
-  ].join('<span class="text-gray-400">/</span>')}</div>`
-
-const STATUS_STYLES = {
-  ready: 'bg-green-100 text-green-800',
-  building: 'bg-blue-100 text-blue-800',
-  requested: 'bg-gray-100 text-gray-700',
-  stale: 'bg-amber-100 text-amber-800',
-  failed: 'bg-red-100 text-red-800',
-}
-
-function statusPill(status) {
-  const cls = STATUS_STYLES[status] || 'bg-gray-100 text-gray-700'
-  return `<span class="px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${escapeHtml(status || 'unknown')}</span>`
-}
-
-const RELATION_ICON = `<svg class="w-4 h-4 text-gray-400 shrink-0" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-  <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm6.5.75v3h3v-3Zm3 4.5h-3v3h3Zm1.5 3h3v-3h-3Zm3-4.5v-3h-3v3Zm-9-3h-3v3h3Zm-3 4.5v3h3v-3Z"/>
-</svg>`
-
 function mvRow(mv) {
   return `
       <li class="group flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-        ${RELATION_ICON}
+        ${tableIcon()}
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
             <a href="/MaterializedView/${mv.id}/$data"
@@ -355,18 +345,7 @@ function mvRow(mv) {
       </li>`
 }
 
-function mvGroup(destination, items) {
-  return `
-    <section class="mt-6">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="px-2 py-0.5 rounded bg-slate-100 font-mono text-sm font-semibold">${escapeHtml(destination)}</span>
-        <span class="text-gray-400 text-sm">${items.length} relation${items.length === 1 ? '' : 's'}</span>
-      </div>
-      <ul class="border border-gray-200 rounded-md divide-y divide-gray-200 overflow-hidden">
-        ${items.map(mvRow).join('')}
-      </ul>
-    </section>`
-}
+const mvGroup = (destination, items) => listSection(destination, items, 'relation', mvRow)
 
 function htmlList(resources) {
   const groups = new Map()
@@ -380,16 +359,13 @@ function htmlList(resources) {
         .sort()
         .map((dest) => mvGroup(dest, groups.get(dest)))
         .join('')
-    : `<div class="mt-6 border border-dashed border-gray-300 rounded-md p-8 text-center text-gray-500">
-         No materializations yet. <a href="/MaterializedView/new" class="text-blue-600 hover:underline">Create one</a>.
-       </div>`
+    : emptyState(
+        'No materializations yet. <a href="/MaterializedView/new" class="text-blue-600 hover:underline">Create one</a>.',
+      )
   return layout(`
     <div class="container mx-auto p-4 max-w-4xl">
       ${breadcrumb('<span>Materialized Views</span>')}
-      <div class="mt-4 flex items-center border-b border-gray-200 pb-2">
-        <h1 class="flex-1 text-2xl font-bold">Materialized Views</h1>
-        <a href="/MaterializedView/new" class="btn">New</a>
-      </div>
+      ${pageHeader('Materialized Views', '<a href="/MaterializedView/new" class="btn">New</a>')}
       ${body}
     </div>`)
 }
@@ -398,16 +374,6 @@ const DESTINATION_LABELS = {
   sqlite: 'sqlite — a SQLite table',
   csv: 'csv — a CSV file',
 }
-
-const field = (label, hint, control) => `
-  <div>
-    <label class="block font-semibold mb-1">${label}${
-      hint ? ` <span class="text-gray-400 font-normal text-sm">${hint}</span>` : ''
-    }</label>
-    ${control}
-  </div>`
-
-const INPUT = 'border border-gray-300 rounded p-2 w-full'
 
 function htmlNewForm(views) {
   const opts = views
@@ -432,22 +398,22 @@ function htmlNewForm(views) {
       <form method="post" action="/MaterializedView" class="mt-4 space-y-5">
 
         <fieldset class="space-y-4">
-          <legend class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Identity</legend>
-          ${field('View', '(required) — the ViewDefinition / SQLView to materialize', `<select name="view" class="${INPUT}">${opts}</select>`)}
-          ${field('Destination', 'where the relation lives — one materialization per (view, destination)', `<select name="destination" class="${INPUT}">${destOpts}</select>`)}
-          ${field('Name', '(optional) relation name; unique per destination; derived from the view if blank', `<input name="name" class="${INPUT}" placeholder="e.g. patients" />`)}
-          ${field('Identifier', '(optional) business identifier', `<div class="flex gap-2"><input name="identifier_system" class="${INPUT}" placeholder="system (uri)" /><input name="identifier_value" class="${INPUT}" placeholder="value" /></div>`)}
+          ${legend(`Identity`)}
+          ${formField('View', '(required) — the ViewDefinition / SQLView to materialize', `<select name="view" class="${FORM_INPUT}">${opts}</select>`)}
+          ${formField('Destination', 'where the relation lives — one materialization per (view, destination)', `<select name="destination" class="${FORM_INPUT}">${destOpts}</select>`)}
+          ${formField('Name', '(optional) relation name; unique per destination; derived from the view if blank', `<input name="name" class="${FORM_INPUT}" placeholder="e.g. patients" />`)}
+          ${formField('Identifier', '(optional) business identifier', `<div class="flex gap-2"><input name="identifier_system" class="${FORM_INPUT}" placeholder="system (uri)" /><input name="identifier_value" class="${FORM_INPUT}" placeholder="value" /></div>`)}
         </fieldset>
 
         <fieldset class="space-y-4">
-          <legend class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Type &amp; freshness</legend>
-          ${field('Type', '(optional) materialization kind/format — vendor-extensible; defaults to the destination kind', `<div class="flex gap-2"><input name="type_system" class="${INPUT}" placeholder="system (e.g. postgres)" /><input name="type_code" class="${INPUT}" placeholder="code (e.g. unlogged-table, parquet)" /></div>`)}
-          ${field('Staleness', 'freshness target — how far the relation may lag; blank = on-demand, 0 = live', `<div class="flex gap-2"><input name="staleness_value" type="number" min="0" step="1" class="${INPUT}" placeholder="value" /><select name="staleness_unit" class="${INPUT}">${unitOpts}</select></div>`)}
+          ${legend(`Type &amp; freshness`)}
+          ${formField('Type', '(optional) materialization kind/format — vendor-extensible; defaults to the destination kind', `<div class="flex gap-2"><input name="type_system" class="${FORM_INPUT}" placeholder="system (e.g. postgres)" /><input name="type_code" class="${FORM_INPUT}" placeholder="code (e.g. unlogged-table, parquet)" /></div>`)}
+          ${formField('Staleness', 'freshness target — how far the relation may lag; blank = on-demand, 0 = live', `<div class="flex gap-2"><input name="staleness_value" type="number" min="0" step="1" class="${FORM_INPUT}" placeholder="value" /><select name="staleness_unit" class="${FORM_INPUT}">${unitOpts}</select></div>`)}
         </fieldset>
 
         <fieldset class="space-y-4">
-          <legend class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Dependencies</legend>
-          ${field('Depends on', '(optional) physical upstream materializations — one reference per line (MaterializedView/&lt;id&gt;)', `<textarea name="dependsOn" rows="3" class="${INPUT} font-mono text-sm" placeholder="MaterializedView/mv-abc123&#10;MaterializedView/mv-def456"></textarea>`)}
+          ${legend(`Dependencies`)}
+          ${formField('Depends on', '(optional) physical upstream materializations — one reference per line (MaterializedView/&lt;id&gt;)', `<textarea name="dependsOn" rows="3" class="${FORM_INPUT} font-mono text-sm" placeholder="MaterializedView/mv-abc123&#10;MaterializedView/mv-def456"></textarea>`)}
         </fieldset>
 
         <p class="text-xs text-gray-400">
@@ -462,26 +428,14 @@ function htmlNewForm(views) {
 }
 
 function htmlData(mv, rows) {
-  const cols = rows.length ? Object.keys(rows[0]) : []
-  const head = cols.map((c) => `<th class="bg-gray-100 border p-2 text-left">${escapeHtml(c)}</th>`).join('')
-  const body =
-    rows
-      .map(
-        (r) =>
-          `<tr>${cols.map((c) => `<td class="border p-2 text-sm">${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`,
-      )
-      .join('') || `<tr><td colspan="${cols.length || 1}" class="p-4 text-gray-500">No rows.</td></tr>`
   return layout(`
     <div class="container mx-auto p-4">
-      ${breadcrumb('<a href="/MaterializedView" class="text-blue-500">Materialized Views</a>', `<span>${mv.name}</span>`)}
+      ${breadcrumb('<a href="/MaterializedView" class="text-blue-500">Materialized Views</a>', `<span>${escapeHtml(mv.name)}</span>`)}
       <h1 class="mt-4 text-2xl font-bold">
-        ${mv.destination}.${mv.name}
+        ${escapeHtml(mv.destination)}.${escapeHtml(mv.name)}
         <span class="text-sm font-normal text-gray-500">— ${mv.rowCount} rows · ${mv.status} · ${escapeHtml(mv.view)}</span>
       </h1>
-      <table class="mt-4 table-auto border-collapse border border-gray-200 w-full">
-        <thead><tr>${head}</tr></thead>
-        <tbody>${body}</tbody>
-      </table>
+      ${rowsTable(rows)}
     </div>`)
 }
 

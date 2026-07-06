@@ -12,7 +12,7 @@
 import sqlite3 from 'sqlite3'
 import { read, search, run as dbRun, all as dbAll, close as dbClose } from './db.js'
 import { evaluate } from '../index.js'
-import { layout, escapeHtml } from './ui.js'
+import { layout, escapeHtml, rowsTable, FORM_INPUT, legend } from './ui.js'
 import { isHtml, renderOperationDefinition, wrapBundle, csvField } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 import { runFromDestination, availableDestinations } from './materializedView.js'
@@ -1004,7 +1004,6 @@ async function renderForm(req, res, { scope, library }) {
   const resolvedDepsForDisplay =
     scope === 'instance' ? await resolveDependenciesForDisplay(library, req.config) : []
 
-  const INPUT = 'border border-gray-300 rounded p-2 w-full'
   const destinations = availableDestinations()
 
   const sourceFields =
@@ -1017,7 +1016,7 @@ async function renderForm(req, res, { scope, library }) {
             provided, the inline resource takes precedence.
           </p>
           <label class="block font-semibold mb-1">queryReference</label>
-          <select name="queryReference" class="${INPUT}"
+          <select name="queryReference" class="${FORM_INPUT}"
                   hx-get="${formAction}/parameters"
                   hx-target="#parameter-fields"
                   hx-swap="innerHTML"
@@ -1028,7 +1027,7 @@ async function renderForm(req, res, { scope, library }) {
               .join('')}
           </select>
           <label class="block font-semibold mb-1 mt-3">queryResource <span class="text-gray-400 font-normal text-sm">(optional inline JSON)</span></label>
-          <textarea name="queryResource" rows="8" class="${INPUT} font-mono text-xs"
+          <textarea name="queryResource" rows="8" class="${FORM_INPUT} font-mono text-xs"
             placeholder='{"resourceType":"Library", ...}'></textarea>
         `
 
@@ -1044,13 +1043,10 @@ async function renderForm(req, res, { scope, library }) {
     <label class="block font-semibold mb-1">Destination
       <span class="text-gray-400 font-normal text-sm">— run against materializations instead of recomputing</span>
     </label>
-    <select name="destination" class="${INPUT}">
+    <select name="destination" class="${FORM_INPUT}">
       <option value="">recompute live (from FHIR data)</option>
       ${destinations.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
     </select>`
-
-  const legend = (t) =>
-    `<legend class="text-sm font-semibold text-gray-500 uppercase tracking-wide">${t}</legend>`
 
   res.setHeader('Content-Type', 'text/html')
   res.send(
@@ -1084,7 +1080,7 @@ async function renderForm(req, res, { scope, library }) {
             ${legend('Run options')}
             <div>
               <label class="block font-semibold mb-1">_format</label>
-              <select name="_format" class="${INPUT}">
+              <select name="_format" class="${FORM_INPUT}">
                 <option value="json">json</option>
                 <option value="ndjson">ndjson</option>
                 <option value="csv">csv</option>
@@ -1167,37 +1163,6 @@ function buildInstanceParametersResource(library, form) {
 
 // Send the rendered result region back to the browser. htmx swaps inner HTML
 // of #sqlquery-result; non-htmx callers get a fully laid-out page.
-// Render an array of flat row objects as an HTML table.
-function renderRowsTable(rows) {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return `<p class="mt-2 text-sm text-gray-500">No rows.</p>`
-  }
-  const cols = Object.keys(rows[0])
-  const head = cols
-    .map((c) => `<th class="bg-gray-100 border border-gray-200 p-2 text-left">${escapeHtml(c)}</th>`)
-    .join('')
-  const body = rows
-    .map(
-      (r) =>
-        `<tr>${cols
-          .map((c) => {
-            const v = r[c]
-            const cell =
-              v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
-            return `<td class="border border-gray-200 p-2 text-sm">${escapeHtml(cell)}</td>`
-          })
-          .join('')}</tr>`,
-    )
-    .join('')
-  return `
-    <div class="mt-2 overflow-x-auto">
-      <table class="table-auto border-collapse border border-gray-200 w-full">
-        <thead><tr>${head}</tr></thead>
-        <tbody>${body}</tbody>
-      </table>
-    </div>`
-}
-
 function sendFormResult(req, res, result) {
   const rowCount = Array.isArray(result.rows) ? result.rows.length : 0
   const html = `
@@ -1206,7 +1171,7 @@ function sendFormResult(req, res, result) {
         <h2 class="text-xl font-bold">Result</h2>
         <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs tabular-nums">${rowCount} row${rowCount === 1 ? '' : 's'}</span>
       </div>
-      ${renderRowsTable(result.rows)}
+      ${rowsTable(result.rows)}
       <details class="mt-3">
         <summary class="text-sky-600 hover:text-sky-700 cursor-pointer text-sm">Raw <code>${escapeHtml(result.contentType)}</code></summary>
         <pre class="mt-2">${escapeHtml(result.body)}</pre>

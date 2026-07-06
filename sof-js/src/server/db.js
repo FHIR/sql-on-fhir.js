@@ -91,6 +91,22 @@ export function close(db) {
   return new Promise((resolve) => db.close(() => resolve()))
 }
 
+// Upsert a single resource into its per-type table (creating the table if
+// needed). Shared by feature write paths so the table DDL lives in one place.
+export function saveResource(config, resourceType, resource) {
+  const table = resourceType.toLowerCase()
+  return new Promise((resolve, reject) => {
+    config.db.run(`CREATE TABLE IF NOT EXISTS ${table} ( id text PRIMARY KEY, resource JSON);`, (err) => {
+      if (err) return reject(err)
+      config.db.run(
+        `INSERT OR REPLACE INTO ${table} (id, resource) VALUES (?, ?)`,
+        [resource.id, JSON.stringify(resource)],
+        (e) => (e ? reject(e) : resolve(resource)),
+      )
+    })
+  })
+}
+
 export async function select(config, query) {
   return new Promise((resolve, reject) => {
     config.db.all(query, (err, rows) => {
