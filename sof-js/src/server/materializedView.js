@@ -375,7 +375,49 @@ const DESTINATION_LABELS = {
   csv: 'csv — a CSV file',
 }
 
-function htmlNewForm(views) {
+// The Name field + dependency preview, re-rendered by htmx when the view or
+// destination changes. Name is derived from the view; the preview shows the
+// logical dependencies that will be cascaded onto the destination and whether
+// each is already materialized there (reused) or will be built.
+async function renderDerivedFields(config, viewRef, destination) {
+  const db = config.db
+  await ensureMvTable(db)
+  const resolved = viewRef ? await resolveDependency(config, viewRef) : null
+  const name = resolved ? sanitizeIdent(deriveName(resolved.resource.url || viewRef)) : ''
+
+  let depsHtml = `<p class="text-sm text-gray-500">No dependencies — a single relation.</p>`
+  if (resolved) {
+    const refs = logicalDependencyRefs(resolved.resource)
+    if (refs.length) {
+      const items = []
+      for (const ref of refs) {
+        const dep = await resolveDependency(config, ref)
+        const existing = dep ? await findMaterialization(db, dep.resource, destination) : null
+        const state = existing
+          ? `<span class="text-gray-500 text-xs">already materialized — reused</span>`
+          : `<span class="text-blue-600 text-xs">will be materialized</span>`
+        items.push(`
+          <li class="flex items-center gap-2 text-sm py-0.5">
+            ${tableIcon('w-3.5 h-3.5 text-gray-400 shrink-0')}
+            <span class="font-mono text-xs truncate" title="${escapeHtml(ref)}">${escapeHtml(ref)}</span>
+            ${state}
+          </li>`)
+      }
+      depsHtml = `<ul class="border border-gray-200 rounded-md p-3">${items.join('')}</ul>`
+    }
+  }
+
+  return `
+    ${formField('Name', '(optional) relation name; derived from the view — edit to override', `<input name="name" value="${escapeHtml(name)}" class="${FORM_INPUT}" placeholder="e.g. patients" />`)}
+    <div>
+      <label class="block font-semibold mb-1">Dependencies
+        <span class="text-gray-400 font-normal text-sm">— cascaded onto <code>${escapeHtml(destination)}</code> in topological order</span>
+      </label>
+      ${depsHtml}
+    </div>`
+}
+
+async function htmlNewForm(config, views) {
   const opts = views
     .map((v) => `<option value="${escapeHtml(v.value)}">${escapeHtml(v.label)}</option>`)
     .join('')
@@ -391,6 +433,14 @@ function htmlNewForm(views) {
   ]
     .map(([v, l]) => `<option value="${v}">${l}</option>`)
     .join('')
+
+  // Initial derived fields for the first view + default destination.
+  const firstView = views[0]?.value || ''
+  const derived = await renderDerivedFields(config, firstView, DEFAULT_DESTINATION)
+
+  // htmx: re-render #mv-derived whenever the view or destination changes.
+  const hx = `hx-get="/MaterializedView/new/fields" hx-target="#mv-derived" hx-swap="innerHTML" hx-trigger="change"`
+
   return layout(`
     <div class="container mx-auto p-4 max-w-2xl">
       ${breadcrumb('<a href="/MaterializedView" class="text-blue-500">Materialized Views</a>', '<span>New</span>')}
@@ -399,9 +449,9 @@ function htmlNewForm(views) {
 
         <fieldset class="space-y-4">
           ${legend(`Identity`)}
-          ${formField('View', '(required) — the ViewDefinition / SQLView to materialize', `<select name="view" class="${FORM_INPUT}">${opts}</select>`)}
-          ${formField('Destination', 'where the relation lives — one materialization per (view, destination)', `<select name="destination" class="${FORM_INPUT}">${destOpts}</select>`)}
-          ${formField('Name', '(optional) relation name; unique per destination; derived from the view if blank', `<input name="name" class="${FORM_INPUT}" placeholder="e.g. patients" />`)}
+          ${formField('View', '(required) — the ViewDefinition / SQLView to materialize', `<select name="view" class="${FORM_INPUT}" ${hx} hx-include="[name='destination']">${opts}</select>`)}
+          ${formField('Destination', 'where the relation lives — one materialization per (view, destination)', `<select name="destination" class="${FORM_INPUT}" ${hx} hx-include="[name='view']">${destOpts}</select>`)}
+          <div id="mv-derived" class="space-y-4">${derived}</div>
           ${formField('Identifier', '(optional) business identifier', `<div class="flex gap-2"><input name="identifier_system" class="${FORM_INPUT}" placeholder="system (uri)" /><input name="identifier_value" class="${FORM_INPUT}" placeholder="value" /></div>`)}
         </fieldset>
 
@@ -411,15 +461,11 @@ function htmlNewForm(views) {
           ${formField('Staleness', 'freshness target — how far the relation may lag; blank = on-demand, 0 = live', `<div class="flex gap-2"><input name="staleness_value" type="number" min="0" step="1" class="${FORM_INPUT}" placeholder="value" /><select name="staleness_unit" class="${FORM_INPUT}">${unitOpts}</select></div>`)}
         </fieldset>
 
-        <fieldset class="space-y-4">
-          ${legend(`Dependencies`)}
-          ${formField('Depends on', '(optional) physical upstream materializations — one reference per line (MaterializedView/&lt;id&gt;)', `<textarea name="dependsOn" rows="3" class="${FORM_INPUT} font-mono text-sm" placeholder="MaterializedView/mv-abc123&#10;MaterializedView/mv-def456"></textarea>`)}
-        </fieldset>
-
         <p class="text-xs text-gray-400">
           <span class="font-semibold">status</span>, <span class="font-semibold">refreshedAt</span>,
           <span class="font-semibold">rowCount</span> and <span class="font-semibold">error</span> are
-          server-managed and set on build.
+          server-managed and set on build. Dependencies are resolved automatically; pin specific
+          upstreams via the API's <code>dependsOn</code> if needed.
         </p>
 
         <button type="submit" class="btn">Materialize</button>
@@ -776,7 +822,15 @@ async function searchMaterializedView(req, res) {
 async function getNewForm(req, res) {
   const views = await listViews(req.config)
   res.setHeader('Content-Type', 'text/html')
-  res.send(htmlNewForm(views))
+  res.send(await htmlNewForm(req.config, views))
+}
+
+// htmx fragment: derived Name + dependency preview for the chosen view/destination.
+async function getNewFields(req, res) {
+  const view = req.query.view || ''
+  const destination = req.query.destination || DEFAULT_DESTINATION
+  res.setHeader('Content-Type', 'text/html')
+  res.send(await renderDerivedFields(req.config, view, destination))
 }
 
 async function getMaterializedViewData(req, res) {
@@ -844,6 +898,7 @@ export function mountRoutes(app) {
   app.post('/MaterializedView', guard(postMaterializedView))
   app.get('/MaterializedView', guard(searchMaterializedView))
   app.get('/MaterializedView/new', guard(getNewForm))
+  app.get('/MaterializedView/new/fields', guard(getNewFields))
   app.get('/MaterializedView/:id/\\$data', guard(getMaterializedViewData))
   app.get('/MaterializedView/:id', guard(getMaterializedView))
   app.put('/MaterializedView/:id', guard(putMaterializedView))

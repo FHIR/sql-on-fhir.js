@@ -452,6 +452,18 @@ describe('cascading materialization of dependent views', () => {
     })
     expect(res.status).toBe(422)
   })
+
+  test('the New-form fields fragment derives the name and previews dependencies', async () => {
+    const url = new URL(`${base}/MaterializedView/new/fields`)
+    url.searchParams.set('view', 'http://myig.org/Library/female-demographics-view')
+    url.searchParams.set('destination', 'sqlite')
+    const html = await (await fetch(url)).text()
+    // Name derived from the view.
+    expect(html).toContain('value="female_demographics_view"')
+    // The logical dependency is previewed with its cascade state.
+    expect(html).toContain('patient-demographics-view')
+    expect(html).toMatch(/will be materialized|already materialized/)
+  })
 })
 
 // Post a ViewDefinition through the create endpoint, returning its canonical url.
