@@ -19,7 +19,7 @@ import { randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { materializeRefToRows, resolveDependency, logicalDependencyRefs } from './sql.js'
-import { search, run, get, all } from './db.js'
+import { search, read, saveResource, run, get, all } from './db.js'
 import {
   layout,
   escapeHtml,
@@ -882,6 +882,121 @@ async function deleteMaterializedView(req, res) {
   await run(db, `DELETE FROM ${MV_TABLE} WHERE id = ?`, [req.params.id])
   if (req.headers['hx-request']) return res.status(200).send('')
   res.json(operationOutcome('informational', `Dropped MaterializedView/${req.params.id}`, 'information'))
+}
+
+// ---- seed --------------------------------------------------------------------
+
+const SQL_TEXT_URL = 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text'
+
+// A showcase multi-dependency SQLView, created if it isn't already present.
+const SHOWCASE_LIBRARY = {
+  resourceType: 'Library',
+  id: 'patient_births_summary',
+  url: 'http://myig.org/Library/patient_births_summary',
+  name: 'patient_births_summary',
+  status: 'active',
+  type: { coding: [{ code: 'sql-view' }] },
+  relatedArtifact: [
+    {
+      type: 'depends-on',
+      label: 'demographics',
+      resource: 'http://myig.org/ViewDefinition/patient_demographics',
+    },
+    {
+      type: 'depends-on',
+      label: 'births',
+      resource: 'http://myig.org/ViewDefinition/patient_multiple_birth',
+    },
+  ],
+  content: [
+    {
+      contentType: 'application/sql',
+      extension: [
+        {
+          url: SQL_TEXT_URL,
+          valueString:
+            'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id',
+        },
+      ],
+    },
+  ],
+}
+
+// Illustrative materializations spanning single relations, a cascade
+// (SQLView -> ViewDefinition), a fan-out (multi-dependency view), and a
+// two-level chain — across both destinations.
+const SEED_SPECS = [
+  { view: 'http://myig.org/ViewDefinition/patient_demographics', destination: 'sqlite', name: 'patients' },
+  { view: 'http://myig.org/ViewDefinition/observations', destination: 'sqlite', name: 'observations' },
+  { view: 'http://myig.org/ViewDefinition/patient_demographics', destination: 'csv', name: 'patients' },
+  {
+    view: 'http://myig.org/Library/active-female-patients-view',
+    destination: 'sqlite',
+    name: 'active_female_patients',
+  },
+  { view: 'http://myig.org/Library/patient_births_summary', destination: 'sqlite', name: 'birth_summary' },
+  {
+    view: 'http://myig.org/Library/female-demographics-view',
+    destination: 'csv',
+    name: 'female_demographics',
+  },
+]
+
+// Build one seed materialization (reuse if it already exists, cascading deps).
+async function materializeSeed(config, viewRef, destination, name) {
+  const db = config.db
+  const resolved = await resolveDependency(config, viewRef)
+  if (!resolved) return null
+  const existing = await findMaterialization(db, resolved.resource, destination)
+  if (existing) return existing
+  const key = resolved.resource.url || `${resolved.resource.resourceType}/${resolved.resource.id}`
+  return buildMaterialization(config, {
+    viewRef,
+    view: resolved.resource,
+    destination,
+    name,
+    stack: new Set([key]),
+  })
+}
+
+// Populate the server with illustrative SQLViews and materializations.
+// Idempotent: does nothing if any materialization already exists. Waits for the
+// FHIR data load to finish before building.
+export async function seedMaterializations(config) {
+  const db = config.db
+  await ensureMvTable(db)
+  const already = await get(db, `SELECT COUNT(*) AS n FROM ${MV_TABLE}`)
+  if (already?.n > 0) {
+    console.log('[seed] materializations already present; skipping')
+    return
+  }
+
+  // Wait (up to 90s) for the async FHIR data load: the seed builds views over
+  // Patient and Observation, so both must be populated before materializing.
+  for (let i = 0; i < 90; i++) {
+    const counts = await Promise.all(
+      ['Patient', 'Observation'].map((t) => search(config, t, 1).catch(() => [])),
+    )
+    if (counts.every((c) => c.length)) break
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+
+  if (!(await read(config, 'Library', SHOWCASE_LIBRARY.id))) {
+    await saveResource(config, 'Library', SHOWCASE_LIBRARY)
+    console.log(`[seed] created showcase SQLView ${SHOWCASE_LIBRARY.id}`)
+  }
+
+  let built = 0
+  for (const spec of SEED_SPECS) {
+    try {
+      const mv = await materializeSeed(config, spec.view, spec.destination, spec.name)
+      if (mv) built++
+    } catch (err) {
+      console.log(`[seed] skipped ${spec.name} on ${spec.destination}: ${err.message}`)
+    }
+  }
+  const total = await get(db, `SELECT COUNT(*) AS n FROM ${MV_TABLE}`)
+  console.log(`[seed] materialized ${built} view(s); ${total?.n} relations total (incl. cascaded deps)`)
 }
 
 // Express 4 does not forward rejections from async handlers, so an awaited

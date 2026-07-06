@@ -8,7 +8,10 @@ import { mountRoutes as mountViewsRoutes } from './server/views.js'
 import { mountRoutes as mountEvaluateRoutes } from './server/evaluate.js'
 import { mountRoutes as mountValidateRoutes } from './server/validate.js'
 import { mountRoutes as mountSqlQueryRunRoutes } from './server/sql.js'
-import { mountRoutes as mountMaterializedViewRoutes } from './server/materializedView.js'
+import {
+  mountRoutes as mountMaterializedViewRoutes,
+  seedMaterializations,
+} from './server/materializedView.js'
 import { migrate, getDb, select, tableExists } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
 import { layout, tableIcon } from './server/ui.js'
@@ -180,4 +183,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   startServer(config)
+  // Load illustrative SQLViews + materializations (idempotent). Opt out with
+  // MV_SEED=0. Tests call startServer directly and never seed.
+  if (process.env.MV_SEED !== '0') {
+    seedMaterializations(config).catch((err) => console.error('[seed] failed', err))
+  }
 }
