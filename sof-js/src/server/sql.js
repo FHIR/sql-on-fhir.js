@@ -15,6 +15,7 @@ import { evaluate } from '../index.js'
 import { layout } from './ui.js'
 import { isHtml, renderOperationDefinition, wrapBundle } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
+import { runFromDestination, availableDestinations } from './materializedView.js'
 
 // Map a FHIR Library.parameter.type to the corresponding `value[x]` field
 // name on a Parameters.parameter entry.
@@ -423,7 +424,7 @@ async function runLibraryToRows(library, config, stack) {
  * @returns {Promise<object>} map from label to column metadata array.
  * @throws {SqlQueryRunError} on resolution failure, type mismatch, cycle, or SQL error.
  */
-async function materialiseDependencies(library, config, queryDb, stack = new Set()) {
+async function materialiseDependencies(library, config, queryDb, stack = new Set(), { destination } = {}) {
   const labelToColumns = {}
   const deps = (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')
   for (const dep of deps) {
@@ -447,6 +448,21 @@ async function materialiseDependencies(library, config, queryDb, stack = new Set
       )
     }
 
+    // When a destination is chosen the query runs *over the materializations*:
+    // each dependency's virtual table is seeded from its materialized relation
+    // on that destination instead of being recomputed from FHIR data.
+    let materialized = null
+    if (destination) {
+      materialized = await runFromDestination(config, resolved.resource, destination)
+      if (!materialized) {
+        throw new SqlQueryRunError(
+          404,
+          'not-found',
+          `Dependency '${label}' (${dep.resource}) is not materialized on destination '${destination}'`,
+        )
+      }
+    }
+
     if (resolved.kind === 'ViewDefinition') {
       // Existing ViewDefinition path: use declared column types and evaluate().
       const viewDef = resolved.resource
@@ -459,7 +475,7 @@ async function materialiseDependencies(library, config, queryDb, stack = new Set
       const colDdl = columns.map((c) => `"${c.name}" ${columnAffinity(c.type)}`).join(', ')
       await dbRun(queryDb, `CREATE TABLE "${label}" (${colDdl})`)
 
-      const rows = await evaluateView(config, viewDef)
+      const rows = materialized ? materialized.rows : await evaluateView(config, viewDef)
       if (rows.length > 0) {
         const placeholders = columns.map(() => '?').join(', ')
         const colList = columns.map((c) => `"${c.name}"`).join(', ')
@@ -478,9 +494,21 @@ async function materialiseDependencies(library, config, queryDb, stack = new Set
         }
       }
     } else {
-      // Library (SQLView) path: execute recursively and materialise results.
+      // Library (SQLView) path: execute recursively and materialise results,
+      // or read the stored relation when running against a destination.
       const depLib = resolved.resource
-      const { rows, colNames } = await runLibraryToRows(depLib, config, stack)
+      const { rows, colNames } = materialized
+        ? {
+            rows: materialized.rows,
+            // Use the relation's schema (available even for an empty relation)
+            // so a query referencing the dependency's columns still resolves.
+            colNames: materialized.columns?.length
+              ? materialized.columns
+              : materialized.rows.length
+                ? Object.keys(materialized.rows[0])
+                : [],
+          }
+        : await runLibraryToRows(depLib, config, stack)
 
       // Derive the table DDL from the view's result-set column names.  All
       // columns use TEXT affinity; SQLite coerces on read and the runtime
@@ -725,14 +753,14 @@ function inferRuntimeTypesFromRows(rows, colNames) {
  * When the target is an `sql-view` no parameter bindings are applied; views
  * are always executed with an empty parameter set.
  */
-async function executeSqlQueryRun({ library, parametersResource, format, header, config }) {
+async function executeSqlQueryRun({ library, parametersResource, format, header, config, destination }) {
   const queryDb = new sqlite3.Database(':memory:')
   try {
     // Seed the path set with the top-level library so recursive SQLView
     // execution can detect cycles that loop back to the top-level resource.
     const topKey = canonicalKey(library)
     const stack = new Set([topKey])
-    const labelToColumns = await materialiseDependencies(library, config, queryDb, stack)
+    const labelToColumns = await materialiseDependencies(library, config, queryDb, stack, { destination })
 
     // SQLView targets are run with no parameter bindings; only sql-query
     // Libraries accept caller-supplied parameters.
@@ -751,9 +779,9 @@ async function executeSqlQueryRun({ library, parametersResource, format, header,
     }
     if (format === 'fhir') {
       const columnFhirTypes = await resolveColumnFhirTypes(queryDb, sql, bindings, rows, labelToColumns)
-      return formatFhir(rows, columnFhirTypes)
+      return { ...formatFhir(rows, columnFhirTypes), rows }
     }
-    return formatRows(rows, format, header)
+    return { ...formatRows(rows, format, header), rows }
   } finally {
     await dbClose(queryDb)
   }
@@ -1016,38 +1044,32 @@ async function renderForm(req, res, { scope, library }) {
   const resolvedDepsForDisplay =
     scope === 'instance' ? await resolveDependenciesForDisplay(library, req.config) : []
 
+  const INPUT = 'border border-gray-300 rounded p-2 w-full'
+  const destinations = availableDestinations()
+
   const sourceFields =
     scope === 'instance'
-      ? `<p class="text-sm text-gray-500">Library: <a href="/Library/${escapeHtml(library.id)}">${escapeHtml(library.id)}</a></p>`
+      ? `<p class="text-sm text-gray-500">Library
+           <a class="font-mono text-blue-600 hover:underline" href="/Library/${escapeHtml(library.id)}">${escapeHtml(library.id)}</a></p>`
       : `
-          <p class="text-sm text-gray-500">
-            Choose a stored Library or paste an inline Library JSON. If both
-            are provided, the inline resource takes precedence.
+          <p class="text-sm text-gray-500 mb-2">
+            Choose a stored Library or paste an inline Library JSON. If both are
+            provided, the inline resource takes precedence.
           </p>
-          <table class="mt-2">
-            <tr>
-              <th>queryReference</th>
-              <td>
-                <select name="queryReference"
-                        hx-get="${formAction}/parameters"
-                        hx-target="#parameter-fields"
-                        hx-swap="innerHTML"
-                        hx-trigger="change">
-                  <option value="">- choose -</option>
-                  ${libraries
-                    .map((l) => `<option value="Library/${escapeHtml(l.id)}">${escapeHtml(l.id)}</option>`)
-                    .join('')}
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <th>queryResource</th>
-              <td>
-                <textarea name="queryResource" rows="10" cols="80"
-                  placeholder='Paste a Library resource JSON, e.g. {"resourceType":"Library", ...}'></textarea>
-              </td>
-            </tr>
-          </table>
+          <label class="block font-semibold mb-1">queryReference</label>
+          <select name="queryReference" class="${INPUT}"
+                  hx-get="${formAction}/parameters"
+                  hx-target="#parameter-fields"
+                  hx-swap="innerHTML"
+                  hx-trigger="change">
+            <option value="">— choose a Library —</option>
+            ${libraries
+              .map((l) => `<option value="Library/${escapeHtml(l.id)}">${escapeHtml(l.id)}</option>`)
+              .join('')}
+          </select>
+          <label class="block font-semibold mb-1 mt-3">queryResource <span class="text-gray-400 font-normal text-sm">(optional inline JSON)</span></label>
+          <textarea name="queryResource" rows="8" class="${INPUT} font-mono text-xs"
+            placeholder='{"resourceType":"Library", ...}'></textarea>
         `
 
   // For instance scope the Library is already known, so render its declared
@@ -1058,57 +1080,65 @@ async function renderForm(req, res, { scope, library }) {
       ? renderInstanceParameterFields(library)
       : `<div id="parameter-fields">${renderParametersJsonTextarea()}</div>`
 
+  const destinationField = `
+    <label class="block font-semibold mb-1">Destination
+      <span class="text-gray-400 font-normal text-sm">— run against materializations instead of recomputing</span>
+    </label>
+    <select name="destination" class="${INPUT}">
+      <option value="">recompute live (from FHIR data)</option>
+      ${destinations.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
+    </select>`
+
+  const legend = (t) =>
+    `<legend class="text-sm font-semibold text-gray-500 uppercase tracking-wide">${t}</legend>`
+
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
-      <div class="container mx-auto p-4">
-        <div class="flex items-center gap-4">${renderBreadcrumbs(scope, library)}</div>
-        <h1 class="mt-4">SQLQuery Run</h1>
-        <p class="mb-4">${escapeHtml(operation?.description || '')}</p>
-        <form
+      <div class="container mx-auto p-4 max-w-2xl">
+        <div class="flex gap-2 items-center text-sm">${renderBreadcrumbs(scope, library)}</div>
+        <h1 class="mt-4 text-2xl font-bold">SQL Query Run</h1>
+        <p class="mt-1 text-gray-500">${escapeHtml(operation?.description || '')}</p>
+        <form class="mt-4 space-y-5"
           hx-post="${formAction}"
           hx-target="#sqlquery-result"
           hx-swap="innerHTML">
-          <h3 class="font-bold mt-4">Library source</h3>
-          ${sourceFields}
+
+          <fieldset class="space-y-2">
+            ${legend('Library source')}
+            ${sourceFields}
+          </fieldset>
 
           ${
             scope === 'instance'
-              ? `<h3 class="font-bold mt-4">Dependencies (virtual tables)</h3>
-          ${renderDependenciesPanel(resolvedDepsForDisplay)}`
+              ? `<fieldset class="space-y-2">${legend('Dependencies (virtual tables)')}${renderDependenciesPanel(resolvedDepsForDisplay)}</fieldset>`
               : ''
           }
 
-          <h3 class="font-bold mt-4">Library parameters</h3>
-          ${parameterFields}
+          <fieldset class="space-y-2">
+            ${legend('Library parameters')}
+            ${parameterFields}
+          </fieldset>
 
-          <h3 class="font-bold mt-4">Output</h3>
-          <table class="mt-2">
-            <tr>
-              <th>_format</th>
-              <td>
-                <select name="_format">
-                  <option value="json">json</option>
-                  <option value="ndjson">ndjson</option>
-                  <option value="csv">csv</option>
-                  <option value="fhir">fhir</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <th>header</th>
-              <td>
-                <label>
-                  <input type="checkbox" name="header" value="true" checked />
-                  Include CSV header (only applies to csv output)
-                </label>
-              </td>
-            </tr>
-          </table>
+          <fieldset class="space-y-3">
+            ${legend('Run options')}
+            <div>
+              <label class="block font-semibold mb-1">_format</label>
+              <select name="_format" class="${INPUT}">
+                <option value="json">json</option>
+                <option value="ndjson">ndjson</option>
+                <option value="csv">csv</option>
+                <option value="fhir">fhir</option>
+              </select>
+            </div>
+            <div>${destinationField}</div>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="header" value="true" checked />
+              Include CSV header (only applies to csv output)
+            </label>
+          </fieldset>
 
-          <div class="mt-4">
-            <button class="btn" type="submit">Run</button>
-          </div>
+          <button type="submit" class="btn">Run</button>
         </form>
         <div id="sqlquery-result" class="mt-4"></div>
 
@@ -1177,12 +1207,50 @@ function buildInstanceParametersResource(library, form) {
 
 // Send the rendered result region back to the browser. htmx swaps inner HTML
 // of #sqlquery-result; non-htmx callers get a fully laid-out page.
+// Render an array of flat row objects as an HTML table.
+function renderRowsTable(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `<p class="mt-2 text-sm text-gray-500">No rows.</p>`
+  }
+  const cols = Object.keys(rows[0])
+  const head = cols
+    .map((c) => `<th class="bg-gray-100 border border-gray-200 p-2 text-left">${escapeHtml(c)}</th>`)
+    .join('')
+  const body = rows
+    .map(
+      (r) =>
+        `<tr>${cols
+          .map((c) => {
+            const v = r[c]
+            const cell =
+              v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+            return `<td class="border border-gray-200 p-2 text-sm">${escapeHtml(cell)}</td>`
+          })
+          .join('')}</tr>`,
+    )
+    .join('')
+  return `
+    <div class="mt-2 overflow-x-auto">
+      <table class="table-auto border-collapse border border-gray-200 w-full">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`
+}
+
 function sendFormResult(req, res, result) {
+  const rowCount = Array.isArray(result.rows) ? result.rows.length : 0
   const html = `
     <div>
-      <h2 class="text-xl font-bold">Result</h2>
-      <p class="text-xs text-gray-500 mt-1">Content-Type: <code>${escapeHtml(result.contentType)}</code></p>
-      <pre class="mt-2">${escapeHtml(result.body)}</pre>
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-bold">Result</h2>
+        <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs tabular-nums">${rowCount} row${rowCount === 1 ? '' : 's'}</span>
+      </div>
+      ${renderRowsTable(result.rows)}
+      <details class="mt-3">
+        <summary class="text-sky-600 hover:text-sky-700 cursor-pointer text-sm">Raw <code>${escapeHtml(result.contentType)}</code></summary>
+        <pre class="mt-2">${escapeHtml(result.body)}</pre>
+      </details>
     </div>
   `
   res.setHeader('Content-Type', 'text/html')
@@ -1228,6 +1296,7 @@ async function handleFormSubmit(req, res, { scope, id }) {
     const form = req.body || {}
     const format = form._format || 'json'
     const header = form.header === 'true'
+    const destination = form.destination || null
 
     let library
     let parametersResource
@@ -1281,6 +1350,7 @@ async function handleFormSubmit(req, res, { scope, id }) {
       format,
       header,
       config: req.config,
+      destination,
     })
     sendFormResult(req, res, result)
   } catch (err) {
