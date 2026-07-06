@@ -3,8 +3,7 @@ import { readResourcesFromDirectory, getFHIRData, resourceTypes } from './utils.
 import fs from 'fs'
 import path from 'path'
 
-export function getDb() {
-  const dbPath = process.env.DB_PATH || './db.sqlite'
+export function getDb(dbPath = process.env.DB_PATH || './db.sqlite') {
   const dbDir = path.dirname(dbPath)
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true })
