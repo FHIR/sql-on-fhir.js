@@ -417,9 +417,12 @@ async function renderDerivedFields(config, viewRef, destination) {
     </div>`
 }
 
-async function htmlNewForm(config, views) {
+async function htmlNewForm(config, views, selectedView = '') {
   const opts = views
-    .map((v) => `<option value="${escapeHtml(v.value)}">${escapeHtml(v.label)}</option>`)
+    .map(
+      (v) =>
+        `<option value="${escapeHtml(v.value)}"${v.value === selectedView ? ' selected' : ''}>${escapeHtml(v.label)}</option>`,
+    )
     .join('')
   const destOpts = Object.keys(DESTINATIONS)
     .map((d) => `<option value="${d}">${escapeHtml(DESTINATION_LABELS[d] || d)}</option>`)
@@ -434,9 +437,9 @@ async function htmlNewForm(config, views) {
     .map(([v, l]) => `<option value="${v}">${l}</option>`)
     .join('')
 
-  // Initial derived fields for the first view + default destination.
-  const firstView = views[0]?.value || ''
-  const derived = await renderDerivedFields(config, firstView, DEFAULT_DESTINATION)
+  // Initial derived fields for the selected (or first) view + default destination.
+  const initialView = selectedView || views[0]?.value || ''
+  const derived = await renderDerivedFields(config, initialView, DEFAULT_DESTINATION)
 
   // htmx: re-render #mv-derived whenever the view or destination changes.
   const hx = `hx-get="/MaterializedView/new/fields" hx-target="#mv-derived" hx-swap="innerHTML" hx-trigger="change"`
@@ -822,7 +825,7 @@ async function searchMaterializedView(req, res) {
 async function getNewForm(req, res) {
   const views = await listViews(req.config)
   res.setHeader('Content-Type', 'text/html')
-  res.send(await htmlNewForm(req.config, views))
+  res.send(await htmlNewForm(req.config, views, req.query.view || ''))
 }
 
 // htmx fragment: derived Name + dependency preview for the chosen view/destination.

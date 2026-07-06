@@ -12,7 +12,8 @@ import {
   mountRoutes as mountMaterializedViewRoutes,
   seedMaterializations,
 } from './server/materializedView.js'
-import { migrate, getDb, select, tableExists } from './server/db.js'
+import { mountRoutes as mountCatalogRoutes } from './server/catalog.js'
+import { migrate, getDb, select, search, tableExists } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
 import { layout, tableIcon } from './server/ui.js'
 
@@ -55,11 +56,16 @@ function opLink(href, label) {
 
 export async function getIndex(req, res) {
   const config = req.config
-  const [views, queries, matviews] = await Promise.all([
+  const [vdCount, libraries, matviews] = await Promise.all([
     countRows(config, 'ViewDefinition'),
-    countRows(config, 'Library'),
+    search(config, 'Library', 1000).catch(() => []),
     countRows(config, 'MaterializedView'),
   ])
+  const hasType = (l, code) => (l.type?.coding || []).some((c) => c.code === code)
+  const sqlViewCount = libraries.filter((l) => hasType(l, 'sql-view')).length
+  const queries = libraries.filter((l) => hasType(l, 'sql-query')).length
+  // Views = ViewDefinitions + SQLViews (composable, materializable recipes).
+  const views = vdCount + sqlViewCount
 
   const stop = (e) => `onclick="event.preventDefault();event.stopPropagation();window.location='${e}'"`
 
@@ -74,23 +80,23 @@ export async function getIndex(req, res) {
 
       <div class="grid gap-4 md:grid-cols-3">
         ${navCard({
-          href: '/ViewDefinition',
+          href: '/Views',
           icon: ICONS.view,
           color: 'bg-blue-50 text-blue-600',
-          title: 'View Definitions',
-          desc: 'Tabular projections of FHIR resources.',
+          title: 'Views',
+          desc: 'ViewDefinitions and SQLViews — composable, materializable recipes.',
           count: views,
-          actions: `<span class="text-blue-600 hover:underline" ${stop('/ViewDefinition')}>Browse</span>
+          actions: `<span class="text-blue-600 hover:underline" ${stop('/Views')}>Browse</span>
                     <span class="text-blue-600 hover:underline" ${stop('/ViewDefinition/new')}>New</span>`,
         })}
         ${navCard({
-          href: '/Library',
+          href: '/Queries',
           icon: ICONS.sql,
           color: 'bg-violet-50 text-violet-600',
-          title: 'SQL Queries',
-          desc: 'Composable SQL over views and resources.',
+          title: 'Queries',
+          desc: 'SQL Queries run with parameters over views and resources.',
           count: queries,
-          actions: `<span class="text-blue-600 hover:underline" ${stop('/Library')}>Browse</span>
+          actions: `<span class="text-blue-600 hover:underline" ${stop('/Queries')}>Browse</span>
                     <span class="text-blue-600 hover:underline" ${stop('/Library/$sqlquery-run/form')}>Run</span>`,
         })}
         ${navCard({
@@ -167,6 +173,7 @@ export async function startServer(config) {
   // that paths like /$sqlquery-run/form are not shadowed by /:resourceType/:id.
   mountSqlQueryRunRoutes(app)
   mountMaterializedViewRoutes(app)
+  mountCatalogRoutes(app)
   mountFhirRoutes(app)
   app.get('/', getIndex)
   console.log('Routes mounted')
