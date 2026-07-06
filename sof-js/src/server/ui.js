@@ -1,5 +1,13 @@
+// Escape a value for safe interpolation into HTML text/attributes.
+export function escapeHtml(value) {
+  return String(value ?? '').replace(
+    /[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
+  )
+}
+
 export function layout(content) {
-    return `
+  return `
       <!DOCTYPE html>
       <html lang="en">
       <head>
@@ -14,5 +22,5 @@ export function layout(content) {
         ${content}
       </body>
       </html>
-    `;
+    `
 }

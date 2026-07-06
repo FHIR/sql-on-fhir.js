@@ -19,9 +19,9 @@ import { randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { materializeRefToRows } from './sql.js'
-import { search } from './db.js'
-import { layout } from './ui.js'
-import { isHtml } from './utils.js'
+import { search, run, get, all } from './db.js'
+import { layout, escapeHtml } from './ui.js'
+import { isHtml, sanitizeIdent, csvField } from './utils.js'
 
 const MV_TABLE = 'materializedview'
 
@@ -42,29 +42,6 @@ function csvDir() {
   return process.env.MV_CSV_DIR || './mv-csv'
 }
 
-// ---- SQLite promise helpers -------------------------------------------------
-
-function run(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err)
-      else resolve(this)
-    })
-  })
-}
-
-function get(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)))
-  })
-}
-
-function all(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)))
-  })
-}
-
 // ---- naming / typing --------------------------------------------------------
 
 const FHIR_TO_SQLITE = {
@@ -78,12 +55,6 @@ const FHIR_TO_SQLITE = {
 
 function affinity(type) {
   return FHIR_TO_SQLITE[type] || 'TEXT'
-}
-
-function sanitizeIdent(s) {
-  let out = String(s || '').replace(/[^A-Za-z0-9_]/g, '_')
-  if (!/^[A-Za-z]/.test(out)) out = 'v_' + out
-  return out
 }
 
 function deriveName(view) {
@@ -115,32 +86,14 @@ function coerce(value) {
   return value
 }
 
-function escapeHtml(s) {
-  return String(s ?? '').replace(
-    /[&<>"]/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
-  )
-}
-
 // ---- CSV --------------------------------------------------------------------
-
-function csvCell(value) {
-  if (value === null || value === undefined) return ''
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
-}
-
-function csvEscape(s) {
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-}
 
 function writeCsv(filePath, columns, rows) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   const colNames = (columns && columns.length ? columns : []).map((c) => c.name)
-  const lines = [colNames.map(csvEscape).join(',')]
+  const lines = [colNames.map(csvField).join(',')]
   for (const row of rows) {
-    lines.push(colNames.map((c) => csvEscape(csvCell(row[c]))).join(','))
+    lines.push(colNames.map((c) => csvField(row[c])).join(','))
   }
   fs.writeFileSync(filePath, lines.join('\n') + '\n')
 }

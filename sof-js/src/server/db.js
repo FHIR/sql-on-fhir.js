@@ -64,6 +64,33 @@ export async function migrate(config) {
   })
 }
 
+// Promise wrappers over a raw sqlite3 handle (not a config). Shared by the
+// query engine and the MaterializedView store.
+export function run(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) reject(err)
+      else resolve(this)
+    })
+  })
+}
+
+export function get(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)))
+  })
+}
+
+export function all(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)))
+  })
+}
+
+export function close(db) {
+  return new Promise((resolve) => db.close(() => resolve()))
+}
+
 export async function select(config, query) {
   return new Promise((resolve, reject) => {
     config.db.all(query, (err, rows) => {

@@ -10,10 +10,10 @@
  */
 
 import sqlite3 from 'sqlite3'
-import { read, search } from './db.js'
+import { read, search, run as dbRun, all as dbAll, close as dbClose } from './db.js'
 import { evaluate } from '../index.js'
-import { layout } from './ui.js'
-import { isHtml, renderOperationDefinition, wrapBundle } from './utils.js'
+import { layout, escapeHtml } from './ui.js'
+import { isHtml, renderOperationDefinition, wrapBundle, csvField } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 import { runFromDestination, availableDestinations } from './materializedView.js'
 
@@ -279,29 +279,6 @@ function coerceForSqlite(value) {
   if (typeof value === 'boolean') return value ? 1 : 0
   if (typeof value === 'object') return JSON.stringify(value)
   return value
-}
-
-// Execute a SQLite operation and return its result as a Promise.
-function dbRun(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err)
-      else resolve(this)
-    })
-  })
-}
-
-function dbAll(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err)
-      else resolve(rows)
-    })
-  })
-}
-
-function dbClose(db) {
-  return new Promise((resolve) => db.close(() => resolve()))
 }
 
 /**
@@ -619,20 +596,11 @@ function formatRows(rows, format, includeHeader) {
     const lines = []
     if (includeHeader) lines.push(cols.join(','))
     for (const row of rows) {
-      lines.push(cols.map((c) => csvEscape(row[c])).join(','))
+      lines.push(cols.map((c) => csvField(row[c])).join(','))
     }
     return { contentType: 'text/csv', body: lines.join('\n') }
   }
   throw new SqlQueryRunError(400, 'invalid', `Unsupported _format '${format}'`)
-}
-
-function csvEscape(value) {
-  if (value === null || value === undefined) return ''
-  const s = String(value)
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return '"' + s.replace(/"/g, '""') + '"'
-  }
-  return s
 }
 
 /**
@@ -857,14 +825,6 @@ export async function postSqlQueryRunInstance(req, res) {
 
 // Escape user-supplied or resource-derived strings before inserting them into
 // the HTML form output.
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
 // Pick the HTML input type that best fits a FHIR primitive parameter type.
 function inputTypeForFhirType(type) {
   switch (type) {

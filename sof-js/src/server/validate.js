@@ -1,5 +1,5 @@
 import { errors as verrors } from '../validate.js'
-import { layout } from './ui.js'
+import { layout, escapeHtml } from './ui.js'
 import { read } from './db.js'
 import { renderOperationDefinition } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
@@ -145,13 +145,6 @@ export async function postValidateFormEndpoint(req, res) {
 // ---------------------------------------------------------------------------
 
 // Escape user-supplied strings before inserting them into HTML output.
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 
 // A sample SQLQuery Library used to pre-fill the validation form.
 const defaultLibraryResource = {

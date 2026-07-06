@@ -1,6 +1,5 @@
-import { wrapBundle } from './utils.js'
-import { layout } from './ui.js'
-import { isHtml } from './utils.js'
+import { wrapBundle, isHtml, sanitizeIdent } from './utils.js'
+import { layout, escapeHtml } from './ui.js'
 import { search, read } from './db.js'
 
 const FHIR_RESOURCE_TYPES = [
@@ -18,14 +17,12 @@ const FHIR_RESOURCE_TYPES = [
   'DocumentReference',
 ]
 
+// A ViewDefinition id: the shared identifier rules, lowercased, with an empty
+// input defaulting to 'view'.
 function sanitizeId(s) {
-  let out = String(s || '')
-    .trim()
-    .replace(/[^A-Za-z0-9_]/g, '_')
-    .toLowerCase()
-  if (!out) out = 'view'
-  if (!/^[a-z]/.test(out)) out = 'v_' + out
-  return out
+  const trimmed = String(s || '').trim()
+  if (!trimmed) return 'view'
+  return sanitizeIdent(trimmed).toLowerCase()
 }
 
 function saveViewDefinition(config, resource) {
@@ -42,13 +39,6 @@ function saveViewDefinition(config, resource) {
       },
     )
   })
-}
-
-function escapeHtml(s) {
-  return String(s ?? '').replace(
-    /[&<>"]/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
-  )
 }
 
 const VIEW_ICON = `<svg class="w-4 h-4 text-gray-400 shrink-0" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
