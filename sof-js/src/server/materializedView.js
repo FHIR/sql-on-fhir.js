@@ -34,7 +34,7 @@ import {
   pageHeader,
   emptyState,
 } from './ui.js'
-import { isHtml, sanitizeIdent, csvField } from './utils.js'
+import { isHtml, sanitizeIdent, csvField, sqlContent } from './utils.js'
 
 const MV_TABLE = 'materializedview'
 
@@ -889,8 +889,6 @@ async function deleteMaterializedView(req, res) {
 
 // ---- seed --------------------------------------------------------------------
 
-const SQL_TEXT_URL = 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text'
-
 // A showcase multi-dependency SQLView, created if it isn't already present.
 const SHOWCASE_LIBRARY = {
   resourceType: 'Library',
@@ -911,18 +909,9 @@ const SHOWCASE_LIBRARY = {
       resource: 'http://myig.org/ViewDefinition/patient_multiple_birth',
     },
   ],
-  content: [
-    {
-      contentType: 'application/sql',
-      extension: [
-        {
-          url: SQL_TEXT_URL,
-          valueString:
-            'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id',
-        },
-      ],
-    },
-  ],
+  content: sqlContent(
+    'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id',
+  ),
 }
 
 // Illustrative materializations spanning single relations, a cascade

@@ -1197,6 +1197,14 @@ describe('Library create form + endpoint', () => {
     const deps = (lib.relatedArtifact || []).filter((a) => a.type === 'depends-on')
     expect(deps.map((d) => d.label).sort()).toEqual(['births', 'demographics'])
 
+    // content carries BOTH base64 `data` and the plain-text sql-text extension.
+    const content = lib.content[0]
+    expect(content.contentType).toBe('application/sql')
+    const sqlText =
+      'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id'
+    expect(Buffer.from(content.data, 'base64').toString('utf8')).toBe(sqlText)
+    expect(content.extension.find((e) => e.url.includes('sql-text')).valueString).toBe(sqlText)
+
     // Readable back.
     const got = await (await fetch(`${base}/Library/${libName}?_format=json`)).json()
     expect(got.resourceType).toBe('Library')

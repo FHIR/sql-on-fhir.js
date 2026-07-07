@@ -141,6 +141,21 @@ export function isHtml(req) {
   return req.query._format !== 'json' && req.headers.accept.indexOf('text/html') != -1
 }
 
+export const SQL_TEXT_EXTENSION_URL = 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text'
+
+// The canonical `content` for a SQL Library. The spec's builder rules require
+// BOTH the base64-encoded `data` and the plain-text `sql-text` extension.
+export function sqlContent(sql) {
+  const text = String(sql || '')
+  return [
+    {
+      contentType: 'application/sql',
+      data: Buffer.from(text, 'utf8').toString('base64'),
+      extension: [{ url: SQL_TEXT_EXTENSION_URL, valueString: text }],
+    },
+  ]
+}
+
 // Sanitize a string into a safe SQL identifier: non-word chars become '_' and a
 // leading non-letter is prefixed with 'v_'. Callers needing a lowercase id or an
 // empty-string fallback wrap this.

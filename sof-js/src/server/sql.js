@@ -25,7 +25,14 @@ import {
   pageHeader,
   emptyState,
 } from './ui.js'
-import { isHtml, renderOperationDefinition, wrapBundle, csvField, sanitizeIdent } from './utils.js'
+import {
+  isHtml,
+  renderOperationDefinition,
+  wrapBundle,
+  csvField,
+  sanitizeIdent,
+  sqlContent,
+} from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 import { runFromDestination, availableDestinations } from './materializedView.js'
 
@@ -1432,8 +1439,6 @@ export async function getLibraryListEndpoint(req, res) {
   }
 }
 
-const SQL_TEXT_URL = 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text'
-
 const DEP_ROWS = 6
 
 // Parse the Dependencies textarea: one `label = ref` per line (API compatibility).
@@ -1569,7 +1574,7 @@ export async function postLibraryEndpoint(req, res) {
     status: 'active',
     type: { coding: [{ code: type }] },
     ...(relatedArtifact.length ? { relatedArtifact } : {}),
-    content: [{ contentType: 'application/sql', extension: [{ url: SQL_TEXT_URL, valueString: sql }] }],
+    content: sqlContent(sql),
   }
   await saveResource(req.config, 'Library', library)
 
