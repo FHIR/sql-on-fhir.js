@@ -3,13 +3,19 @@ import { readResourcesFromDirectory, getFHIRData, resourceTypes } from './utils.
 import fs from 'fs'
 import path from 'path'
 
-export function getDb() {
-  const dbPath = process.env.DB_PATH || './db.sqlite'
+export function getDb(dbPath = process.env.DB_PATH || './db.sqlite') {
   const dbDir = path.dirname(dbPath)
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true })
   }
   const db = new sqlite3.Database(dbPath)
+  // WAL lets a second connection (e.g. a test opening the same file) read and
+  // write concurrently instead of failing with SQLITE_BUSY; busy_timeout waits
+  // rather than erroring when a lock is briefly held.
+  db.serialize(() => {
+    db.run('PRAGMA journal_mode = WAL')
+    db.run('PRAGMA busy_timeout = 5000')
+  })
   return db
 }
 
@@ -62,6 +68,49 @@ export async function migrate(config) {
 
   resourceTypes.forEach(async (resourceType) => {
     await loadResources(config, resourceType)
+  })
+}
+
+// Promise wrappers over a raw sqlite3 handle (not a config). Shared by the
+// query engine and the MaterializedView store.
+export function run(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) reject(err)
+      else resolve(this)
+    })
+  })
+}
+
+export function get(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => (err ? reject(err) : resolve(row)))
+  })
+}
+
+export function all(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows)))
+  })
+}
+
+export function close(db) {
+  return new Promise((resolve) => db.close(() => resolve()))
+}
+
+// Upsert a single resource into its per-type table (creating the table if
+// needed). Shared by feature write paths so the table DDL lives in one place.
+export function saveResource(config, resourceType, resource) {
+  const table = resourceType.toLowerCase()
+  return new Promise((resolve, reject) => {
+    config.db.run(`CREATE TABLE IF NOT EXISTS ${table} ( id text PRIMARY KEY, resource JSON);`, (err) => {
+      if (err) return reject(err)
+      config.db.run(
+        `INSERT OR REPLACE INTO ${table} (id, resource) VALUES (?, ?)`,
+        [resource.id, JSON.stringify(resource)],
+        (e) => (e ? reject(e) : resolve(resource)),
+      )
+    })
   })
 }
 
