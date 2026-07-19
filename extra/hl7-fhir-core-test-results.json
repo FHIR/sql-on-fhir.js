@@ -85,26 +85,6 @@
       }
     }]
   },
-  "logic.json" : {
-    "tests" : [{
-      "name" : "filtering with 'and'",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "filtering with 'or'",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "filtering with 'not'",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
   "view_resource.json" : {
     "tests" : [{
       "name" : "only pts",
@@ -120,6 +100,26 @@
     },
     {
       "name" : "resource not specified",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "logic.json" : {
+    "tests" : [{
+      "name" : "filtering with 'and'",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "filtering with 'or'",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "filtering with 'not'",
       "result" : {
         "passed" : true
       }
@@ -225,20 +225,6 @@
       }
     }]
   },
-  "fn_first.json" : {
-    "tests" : [{
-      "name" : "table level first()",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "table and field level first()",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
   "collection.json" : {
     "tests" : [{
       "name" : "fail when 'collection' is not true",
@@ -260,6 +246,20 @@
     },
     {
       "name" : "collection = false relative to forEachOrNull parent",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "fn_first.json" : {
+    "tests" : [{
+      "name" : "table level first()",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "table and field level first()",
       "result" : {
         "passed" : true
       }
@@ -417,6 +417,14 @@
       }
     }]
   },
+  "fn_empty.json" : {
+    "tests" : [{
+      "name" : "empty names",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
   "fhirpath.json" : {
     "tests" : [{
       "name" : "one element",
@@ -480,14 +488,6 @@
     },
     {
       "name" : "string join: default separator",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
-  "fn_empty.json" : {
-    "tests" : [{
-      "name" : "empty names",
       "result" : {
         "passed" : true
       }
