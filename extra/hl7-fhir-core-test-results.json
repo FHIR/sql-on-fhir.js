@@ -315,20 +315,6 @@
       }
     }]
   },
-  "fn_oftype.json" : {
-    "tests" : [{
-      "name" : "select string values",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "select integer values",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
   "combinations.json" : {
     "tests" : [{
       "name" : "select",
@@ -362,6 +348,20 @@
     },
     {
       "name" : "unionAll + forEach + column + select",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "fn_oftype.json" : {
+    "tests" : [{
+      "name" : "select string values",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "select integer values",
       "result" : {
         "passed" : true
       }
@@ -412,14 +412,6 @@
     },
     {
       "name" : "where path that evaluates to true when empty",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
-  "fn_empty.json" : {
-    "tests" : [{
-      "name" : "empty names",
       "result" : {
         "passed" : true
       }
@@ -488,6 +480,14 @@
     },
     {
       "name" : "string join: default separator",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "fn_empty.json" : {
+    "tests" : [{
+      "name" : "empty names",
       "result" : {
         "passed" : true
       }
@@ -625,20 +625,6 @@
       }
     }]
   },
-  "fn_extension.json" : {
-    "tests" : [{
-      "name" : "simple extension",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "nested extension",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
   "fn_join.json" : {
     "tests" : [{
       "name" : "join with comma",
@@ -654,6 +640,20 @@
     },
     {
       "name" : "join with no value - default to no separator",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "fn_extension.json" : {
+    "tests" : [{
+      "name" : "simple extension",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "nested extension",
       "result" : {
         "passed" : true
       }
