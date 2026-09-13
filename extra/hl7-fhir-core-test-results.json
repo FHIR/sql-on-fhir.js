@@ -417,6 +417,14 @@
       }
     }]
   },
+  "fn_empty.json" : {
+    "tests" : [{
+      "name" : "empty names",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
   "fhirpath.json" : {
     "tests" : [{
       "name" : "one element",
@@ -468,26 +476,6 @@
     },
     {
       "name" : "nested exists",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "string join",
-      "result" : {
-        "passed" : true
-      }
-    },
-    {
-      "name" : "string join: default separator",
-      "result" : {
-        "passed" : true
-      }
-    }]
-  },
-  "fn_empty.json" : {
-    "tests" : [{
-      "name" : "empty names",
       "result" : {
         "passed" : true
       }
@@ -662,6 +650,178 @@
   "fhirpath_numbers.json" : {
     "tests" : [{
       "name" : "add observation",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "repeat.json" : {
+    "tests" : [{
+      "name" : "basic",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "item and answer.item",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "empty expression",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "empty child expression",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "combined with forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "combined with forEachOrNull",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "combined with unionAll",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "repeat inside forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "repeat inside repeat",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "repeat inside forEachOrNull",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "sibling repeats at top level",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "sibling repeats inside forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "top-level repeat with sibling forEach containing repeat",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "forEach with repeat with forEach (triple nesting)",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "repeat with forEach with repeat (triple nesting)",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "unionAll inside repeat",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "repeat inside repeat inside repeat",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "multi-path repeat inside forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "unionAll with repeat and non-repeat branches",
+      "result" : {
+        "passed" : true
+      }
+    }]
+  },
+  "row_index.json" : {
+    "tests" : [{
+      "name" : "%rowIndex at top level",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex with forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex with forEachOrNull",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex with nested forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex with repeat",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex with unionAll",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex in unionAll without forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex in unionAll inside forEach",
+      "result" : {
+        "passed" : true
+      }
+    },
+    {
+      "name" : "%rowIndex for surrogate key",
       "result" : {
         "passed" : true
       }
