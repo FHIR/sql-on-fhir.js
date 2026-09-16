@@ -1,7 +1,25 @@
+/**
+ * SQLite-backed resource store. Canonical artifacts (ViewDefinitions,
+ * Libraries, OperationDefinitions, terminology and Group fixtures) are loaded
+ * from `metadata/`; clinical data is fetched once from the Synthea bundle.
+ *
+ * Authors: niquola, jmandel, John Grimes
+ */
+
 import sqlite3 from 'sqlite3'
 import { readResourcesFromDirectory, getFHIRData, resourceTypes } from './utils.js'
 import fs from 'fs'
 import path from 'path'
+
+/** Resource types loaded from `metadata/<Type>/` at start-up. */
+export const CANONICAL_TYPES = [
+  'ViewDefinition',
+  'OperationDefinition',
+  'CodeSystem',
+  'ValueSet',
+  'Library',
+  'Group',
+]
 
 export function getDb() {
   const dbPath = process.env.DB_PATH || './db.sqlite'
@@ -9,20 +27,20 @@ export function getDb() {
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true })
   }
-  const db = new sqlite3.Database(dbPath)
-  return db
+  return new sqlite3.Database(dbPath)
+}
+
+// Table names are quoted because some resource types (Group) are SQL keywords.
+function table(resourceType) {
+  return `"${resourceType.toLowerCase()}"`
 }
 
 function loadCanonicalResources(config, resourceType) {
-  console.log(`Loading ${resourceType} canonical resources`)
-  const migrate = `CREATE TABLE IF NOT EXISTS ${resourceType.toLowerCase()} ( id text PRIMARY KEY, resource JSON);`
   const db = config.db
   db.serialize(() => {
-    db.run(migrate)
-    const resources = readResourcesFromDirectory(resourceType)
-    const stmt = db.prepare(
-      `INSERT OR REPLACE INTO ${resourceType.toLowerCase()} (id, resource) VALUES (?, ?)`,
-    )
+    db.run(`CREATE TABLE IF NOT EXISTS ${table(resourceType)} ( id text PRIMARY KEY, resource JSON);`)
+    const resources = readResourcesFromDirectory(resourceType) || []
+    const stmt = db.prepare(`INSERT OR REPLACE INTO ${table(resourceType)} (id, resource) VALUES (?, ?)`)
     resources.forEach((resource) => {
       stmt.run(resource.id, JSON.stringify(resource))
     })
@@ -31,18 +49,13 @@ function loadCanonicalResources(config, resourceType) {
 }
 
 async function loadResources(config, resourceType) {
-  //console.log(`Loading ${resourceType} resources`);
-  const migrate = `CREATE TABLE IF NOT EXISTS ${resourceType.toLowerCase()} ( id text PRIMARY KEY, resource JSON);`
-
   const db = config.db
   db.serialize(async () => {
-    db.run(migrate)
-    const stmt = db.prepare(
-      `INSERT OR REPLACE INTO ${resourceType.toLowerCase()} (id, resource) VALUES (?, ?)`,
-    )
-    const count = await select(config, `SELECT COUNT(*) as count FROM ${resourceType.toLowerCase()}`)
-    //console.log(resourceType, count);
+    db.run(`CREATE TABLE IF NOT EXISTS ${table(resourceType)} ( id text PRIMARY KEY, resource JSON);`)
+    const stmt = db.prepare(`INSERT OR REPLACE INTO ${table(resourceType)} (id, resource) VALUES (?, ?)`)
+    const count = await select(config, `SELECT COUNT(*) as count FROM ${table(resourceType)}`)
     if (count[0].count > 0) {
+      stmt.finalize()
       return
     }
     const resources = await getFHIRData(resourceType)
@@ -55,8 +68,7 @@ async function loadResources(config, resourceType) {
 }
 
 export async function migrate(config) {
-  const canonicals = ['ViewDefinition', 'OperationDefinition', 'CodeSystem', 'ValueSet', 'Library']
-  canonicals.forEach((resourceType) => {
+  CANONICAL_TYPES.forEach((resourceType) => {
     loadCanonicalResources(config, resourceType)
   })
 
@@ -65,9 +77,9 @@ export async function migrate(config) {
   })
 }
 
-export async function select(config, query) {
+export async function select(config, query, params = []) {
   return new Promise((resolve, reject) => {
-    config.db.all(query, (err, rows) => {
+    config.db.all(query, params, (err, rows) => {
       if (err) {
         reject(err)
       } else {
@@ -78,63 +90,53 @@ export async function select(config, query) {
 }
 
 export async function search(config, resourceType, limit = 100) {
-  return new Promise((resolve, reject) => {
-    const query = `SELECT * FROM ${resourceType.toLowerCase()} LIMIT ${limit}`
-    config.db.all(query, (err, rows) => {
-      if (err) {
-        reject(err)
-      } else {
-        resolve(rows.map((row) => JSON.parse(row.resource)))
-      }
-    })
-  })
+  if (!(await tableExists(config, resourceType))) return []
+  const rows = await select(config, `SELECT resource FROM ${table(resourceType)} LIMIT ${Number(limit)}`)
+  return rows.map((row) => JSON.parse(row.resource))
+}
+
+/**
+ * Return every stored resource of a type; an empty list when the type has no
+ * table.
+ *
+ * @param {object} config - Server config.
+ * @param {string} resourceType - FHIR resource type.
+ * @returns {Promise<object[]>} the resources.
+ */
+export async function searchAll(config, resourceType) {
+  if (!(await tableExists(config, resourceType))) return []
+  const rows = await select(config, `SELECT resource FROM ${table(resourceType)}`)
+  return rows.map((row) => JSON.parse(row.resource))
 }
 
 export async function tableExists(config, resourceType) {
-  return new Promise((resolve, reject) => {
-    const query = `SELECT name FROM sqlite_master WHERE type='table' AND name='${resourceType.toLowerCase()}'`
-    config.db.get(query, (err, row) => {
-      if (err) {
-        reject(err)
-      } else {
-        resolve(row !== undefined)
-      }
-    })
-  })
+  const rows = await select(config, `SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [
+    resourceType.toLowerCase(),
+  ])
+  return rows.length > 0
 }
 
 export async function read(config, resourceType, id) {
-  return new Promise((resolve, reject) => {
-    const query = `SELECT * FROM ${resourceType.toLowerCase()} WHERE id = ?`
-    config.db.get(query, [id], (err, row) => {
-      if (err) {
-        reject(err)
-      } else {
-        if (row?.resource) {
-          resolve(JSON.parse(row.resource))
-        } else {
-          resolve(null)
-        }
-      }
-    })
-  })
+  if (!(await tableExists(config, resourceType))) return null
+  const rows = await select(config, `SELECT resource FROM ${table(resourceType)} WHERE id = ?`, [id])
+  return rows.length > 0 ? JSON.parse(rows[0].resource) : null
 }
 
+/**
+ * Expand a stored ValueSet using the stored CodeSystem it composes from. When
+ * the include lists concepts explicitly the expansion is restricted to them.
+ *
+ * @param {object} config - Server config.
+ * @param {string} valueSetUrl - Canonical URL of the ValueSet.
+ * @returns {Promise<object|null>} the ValueSet with a `concept` list, or null when unknown.
+ */
 export async function expandValueSet(config, valueSetUrl) {
-  const valueSets = await search(config, 'ValueSet')
-  const codeSystems = await search(config, 'CodeSystem')
-  const valueSet = valueSets.filter((v) => v.url === valueSetUrl)[0]
-
-  if (valueSet) {
-    const system = valueSet.compose?.include[0]?.system
-    const codeSystem = codeSystems.filter((c) => c.url === system)[0]
-    if (codeSystem) {
-      valueSet.concept = codeSystem.concept
-      return valueSet
-    } else {
-      return valueSet
-    }
-  } else {
-    return null
-  }
+  const valueSet = (await searchAll(config, 'ValueSet')).find((v) => v.url === valueSetUrl)
+  if (!valueSet) return null
+  const include = valueSet.compose?.include?.[0]
+  const codeSystem = (await searchAll(config, 'CodeSystem')).find((c) => c.url === include?.system)
+  if (!codeSystem) return valueSet
+  const listed = include.concept ? new Set(include.concept.map((c) => c.code)) : null
+  valueSet.concept = listed ? codeSystem.concept.filter((c) => listed.has(c.code)) : codeSystem.concept
+  return valueSet
 }

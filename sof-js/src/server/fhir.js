@@ -1,10 +1,11 @@
 import fs from 'fs';
-import { wrapBundle, isHtml } from './utils.js';
+import path from 'path';
+import { wrapBundle, isHtml, metadataDir } from './utils.js';
 import { search, read, tableExists  } from './db.js';
 import { layout } from './ui.js';
 
 export async function getCapabilityStatementEndpoint(req, res) {
-    const capabilityStatement = JSON.parse(fs.readFileSync('./metadata/CapabilityStatement.json', 'utf8'));
+    const capabilityStatement = JSON.parse(fs.readFileSync(path.join(metadataDir(), 'CapabilityStatement.json'), 'utf8'));
     if (isHtml(req)) {
         res.send(layout(`   
             <div class="container mx-auto p-4">
