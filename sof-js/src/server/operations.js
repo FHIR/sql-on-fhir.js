@@ -12,10 +12,21 @@ import { evaluate } from '../index.js'
 import { validateSqlLibraryShape } from './sqlLibraryValidation.js'
 import { inPatientCompartment } from './compartment.js'
 import { runLibrary, valueFieldForFhirType } from './sqlEngine.js'
+import { issue, operationError, fail, combineErrors, parseCanonical, viewColumns } from './common.js'
 
-export const SPEC_BASE = 'http://hl7.org/fhir/uv/sql-on-fhir'
-export const SQL_TEXT_EXTENSION = `${SPEC_BASE}/StructureDefinition/sql-text`
-export const LIBRARY_TYPES_SYSTEM = `${SPEC_BASE}/CodeSystem/LibraryTypesCodes`
+export {
+  SPEC_BASE,
+  SQL_TEXT_EXTENSION,
+  LIBRARY_TYPES_SYSTEM,
+  issue,
+  operationError,
+  fail,
+  outcome,
+  combineErrors,
+  sendError,
+  parseCanonical,
+  viewColumns,
+} from './common.js'
 
 /** Native media type of each output format. */
 export const MEDIA_TYPES = {
@@ -37,95 +48,6 @@ export const EXPORT_FORMATS = ['csv', 'json', 'ndjson']
 
 /** Parameters the specification offers that this server does not support. */
 export const UNSUPPORTED_PARAMETERS = ['source']
-
-// ---------------------------------------------------------------------------
-// Errors and OperationOutcome
-// ---------------------------------------------------------------------------
-
-/**
- * Build a single OperationOutcome issue.
- *
- * @param {string} code - FHIR issue type code.
- * @param {string} diagnostics - Human-readable description.
- * @param {string} [expression] - Parameter (or part) at fault.
- * @returns {object} the issue.
- */
-export function issue(code, diagnostics, expression) {
-  const result = { severity: 'error', code, diagnostics }
-  if (expression) result.expression = [expression]
-  return result
-}
-
-/**
- * Build an error carrying an HTTP status and OperationOutcome issues.
- *
- * @param {number} status - HTTP status code.
- * @param {object[]} issues - Issues built with `issue()`.
- * @returns {Error} the error, with `status` and `issues` properties.
- */
-export function operationError(status, issues) {
-  const err = new Error(issues.map((i) => i.diagnostics).join('; '))
-  err.status = status
-  err.issues = issues
-  return err
-}
-
-/**
- * Throw an operation error with a single issue.
- *
- * @param {number} status - HTTP status code.
- * @param {string} code - FHIR issue type code.
- * @param {string} diagnostics - Human-readable description.
- * @param {string} [expression] - Parameter at fault.
- * @throws {Error} always.
- */
-export function fail(status, code, diagnostics, expression) {
-  throw operationError(status, [issue(code, diagnostics, expression)])
-}
-
-/**
- * Build an OperationOutcome resource from a list of issues.
- *
- * @param {object[]} issues - Issues built with `issue()`.
- * @returns {object} the OperationOutcome.
- */
-export function outcome(issues) {
-  return { resourceType: 'OperationOutcome', issue: issues }
-}
-
-/**
- * Combine the errors collected while validating independent parts of a request
- * into one error. A 404 (an artifact the operation is about is missing) is more
- * fundamental than a 400 (a scoping value is at fault), so it wins the status;
- * every issue is reported.
- *
- * @param {Error[]} errors - Errors produced by `operationError`.
- * @returns {Error|null} the combined error, or null when the list is empty.
- */
-export function combineErrors(errors) {
-  if (errors.length === 0) return null
-  const status = errors.some((e) => e.status === 404) ? 404 : Math.max(...errors.map((e) => e.status || 500))
-  return operationError(
-    status,
-    errors.flatMap((e) => e.issues || [issue('exception', e.message)]),
-  )
-}
-
-/**
- * Send an error as an OperationOutcome response. Errors without a status are
- * unexpected and reported as 500.
- *
- * @param {object} res - Express response.
- * @param {Error} err - The error to send.
- */
-export function sendError(res, err) {
-  if (!err.status) {
-    console.error('Unexpected operation error', err)
-  }
-  res.status(err.status || 500)
-  res.setHeader('Content-Type', 'application/fhir+json')
-  res.send(JSON.stringify(outcome(err.issues || [issue('exception', err.message || String(err))]), null, 2))
-}
 
 // ---------------------------------------------------------------------------
 // Parameters
@@ -291,9 +213,20 @@ const ACCEPT_TO_FORMAT = {
   'application/vnd.apache.parquet': 'parquet',
 }
 
+// Media types named by an Accept header, most preferred first (by q-value,
+// then by position).
 function acceptedMediaTypes(accept) {
   if (!accept) return []
-  return accept.split(',').map((part) => part.split(';')[0].trim().toLowerCase())
+  return accept
+    .split(',')
+    .map((part, index) => {
+      const [type, ...params] = part.split(';').map((s) => s.trim())
+      const q = params.map((p) => /^q=(.*)$/i.exec(p)).find(Boolean)
+      return { type: type.toLowerCase(), q: q ? Number(q[1]) : 1, index }
+    })
+    .filter((m) => m.type && m.q > 0)
+    .sort((a, b) => b.q - a.q || a.index - b.index)
+    .map((m) => m.type)
 }
 
 /**
@@ -366,18 +299,6 @@ export function artifactKind(resource) {
   return null
 }
 
-/**
- * Split a canonical reference into its URL and optional version.
- *
- * @param {string} canonical - `url` or `url|version`.
- * @returns {{url: string, version: string|null}} the parts.
- */
-export function parseCanonical(canonical) {
-  const idx = canonical.indexOf('|')
-  if (idx === -1) return { url: canonical, version: null }
-  return { url: canonical.slice(0, idx), version: canonical.slice(idx + 1) }
-}
-
 function compareVersions(a, b) {
   return String(a ?? '').localeCompare(String(b ?? ''), undefined, { numeric: true })
 }
@@ -426,7 +347,9 @@ export async function lookupReference(config, reference, baseUrl) {
  *
  * @param {object} config - Server config.
  * @param {object} naming - `{subjectCanonical, subjectReference, subjectResource}` values, absent ones undefined.
- * @param {object} options - `{ baseUrl, prefix }`; `prefix` is prepended to expressions (e.g. `subject[1].`).
+ * @param {object} options - `{ baseUrl, prefix }`; `prefix` is prepended to expressions (e.g. `subject[1].`). With a
+ *   prefix the subject is a repetition of the export operation's `subject` parameter, whose expression is the
+ *   repetition itself and whose "no naming form" case is `invalid` rather than `required`.
  * @returns {Promise<{kind: string, resource: object, form: string}>} the resolved subject and the naming form used.
  * @throws {Error} 400 (none or several forms), 404 (unresolvable), 422 (not a ViewDefinition, SQLQuery or SQLView).
  */
@@ -434,12 +357,13 @@ export async function resolveSubject(config, naming, { baseUrl, prefix = '' }) {
   const forms = ['subjectCanonical', 'subjectReference', 'subjectResource'].filter(
     (f) => naming[f] !== undefined && naming[f] !== null,
   )
+  const subjectExpression = prefix ? prefix.replace(/\.$/, '') : 'subject'
   if (forms.length === 0) {
     fail(
       400,
-      'required',
+      prefix ? 'invalid' : 'required',
       'One of subjectCanonical, subjectReference or subjectResource must be supplied',
-      `${prefix}subject`,
+      subjectExpression,
     )
   }
   if (forms.length > 1) {
@@ -447,7 +371,7 @@ export async function resolveSubject(config, naming, { baseUrl, prefix = '' }) {
       400,
       'invalid',
       `Only one of subjectCanonical, subjectReference and subjectResource may be supplied; got ${forms.join(', ')}`,
-      `${prefix}subject`,
+      subjectExpression,
     )
   }
   const form = forms[0]
@@ -664,12 +588,17 @@ export function unwrapResources(resources) {
  * @returns {(resourceType: string) => Promise<object[]>} the data source.
  */
 export function makeDataSource(config, { patientRefs = null, since = null }, inline = null) {
+  // Every subject in a job sees the same resources, so each type is read and
+  // filtered once per data source.
+  const cache = new Map()
   return async (resourceType) => {
+    if (cache.has(resourceType)) return cache.get(resourceType)
     let resources = inline
       ? inline.filter((r) => r?.resourceType === resourceType)
       : await searchAll(config, resourceType)
     resources = applySince(resources, since)
     if (patientRefs) resources = resources.filter((r) => inPatientCompartment(r, patientRefs))
+    cache.set(resourceType, resources)
     return resources
   }
 }
@@ -677,24 +606,6 @@ export function makeDataSource(config, { patientRefs = null, since = null }, inl
 // ---------------------------------------------------------------------------
 // Execution
 // ---------------------------------------------------------------------------
-
-/**
- * Declared columns of a ViewDefinition, in order.
- *
- * @param {object} viewDefinition - The ViewDefinition.
- * @returns {{name: string, type: string|undefined}[]} the columns.
- */
-export function viewColumns(viewDefinition) {
-  const columns = []
-  const walk = (node) => {
-    if (!node) return
-    for (const c of node.column || []) columns.push({ name: c.name, type: c.type })
-    for (const s of node.select || []) walk(s)
-    for (const u of node.unionAll || []) walk(u)
-  }
-  for (const s of viewDefinition.select || []) walk(s)
-  return columns
-}
 
 function evaluateView(viewDefinition, resources, expression) {
   try {

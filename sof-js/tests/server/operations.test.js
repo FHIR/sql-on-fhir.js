@@ -41,6 +41,15 @@ describe('negotiateFormat', () => {
     )
   })
 
+  test('Accept q-values rank the media types', () => {
+    expect(
+      negotiateFormat({ format: null, accept: 'text/csv;q=0.5, application/json', allowed: RUN_FORMATS }),
+    ).toBe('json')
+    expect(
+      negotiateFormat({ format: null, accept: 'text/csv;q=0, application/x-ndjson', allowed: RUN_FORMATS }),
+    ).toBe('ndjson')
+  })
+
   test('export ignores Accept entirely', () => {
     expect(
       negotiateFormat({

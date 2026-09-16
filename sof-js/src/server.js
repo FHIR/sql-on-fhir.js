@@ -17,6 +17,7 @@ import { mountRoutes as mountFormRoutes } from './server/forms.js'
 import { migrate, getDb } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
 import { layout } from './server/ui.js'
+import { sendError, operationError, issue } from './server/common.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -61,6 +62,17 @@ export async function startServer(config) {
   const app = express()
   app.use(cors())
   app.use(express.json({ type: ['application/json', 'application/fhir+json'], limit: '50mb' }))
+  // A body that fails to parse is a client error; report it as an
+  // OperationOutcome rather than Express's HTML error page.
+  app.use((err, req, res, next) => {
+    if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+      return sendError(
+        res,
+        operationError(400, [issue('structure', `Request body is not valid JSON: ${err.message}`)]),
+      )
+    }
+    next(err)
+  })
   app.use(express.urlencoded({ extended: true }))
   config.db = getDb()
   config.exportDir = path.resolve(config.exportDir || process.env.EXPORT_DIR || './export')

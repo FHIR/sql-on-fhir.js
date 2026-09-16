@@ -283,7 +283,64 @@ describe('$sql-export rejected requests', () => {
     expect(res.status).toBe(400)
     const body = await outcome(res)
     expect(body.issue[0].code).toBe('invalid')
-    expect(body.issue[0].expression[0]).toMatch(/^subject/)
+    expect(body.issue[0].expression).toEqual(['subject[0]'])
+  })
+
+  test('a repetition with no naming form is 400 invalid naming the repetition', async () => {
+    const res = await kickOff([subject([{ name: 'name', valueString: 'only-a-name' }])])
+    expect(res.status).toBe(400)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
+    expect(body.issue[0].expression).toEqual(['subject[0]'])
+  })
+
+  test('two names that sanitise to the same file name are rejected as a collision', async () => {
+    const res = await kickOff([
+      subject([
+        { name: 'name', valueString: 'a b' },
+        { name: 'subjectCanonical', valueCanonical: VIEW_CANONICAL },
+      ]),
+      subject([
+        { name: 'name', valueString: 'a_b' },
+        { name: 'subjectReference', valueReference: { reference: 'ViewDefinition/observations' } },
+      ]),
+    ])
+    expect(res.status).toBe(400)
+    const body = await outcome(res)
+    expect(body.issue[0].expression).toEqual(['subject'])
+  })
+
+  test('an output named job in json format does not clobber the job record', async () => {
+    const { result } = await runExport([
+      subject([
+        { name: 'name', valueString: 'job' },
+        { name: 'subjectReference', valueReference: { reference: 'Library/patient-count' } },
+      ]),
+      { name: '_format', valueCode: 'json' },
+    ])
+    expect(result.status).toBe(200)
+    const manifest = await result.json()
+    const output = manifest.parameter.find((p) => p.name === 'output')
+    const rows = await (await fetch(output.part.find((p) => p.name === 'location').valueUri)).json()
+    expect(rows[0]).toHaveProperty('total')
+  })
+
+  test('a SQL syntax error in a subject is rejected at kick-off with 422', async () => {
+    const lib = sqlQueryLibrary('SELEC nope FROM p', [{ resource: VIEW_CANONICAL, label: 'p' }])
+    const res = await kickOff([subject([{ name: 'subjectResource', resource: lib }])])
+    expect(res.status).toBe(422)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
+    expect(body.issue[0].expression).toEqual(['subject[0].subject'])
+  })
+
+  test('an invalid FHIRPath expression in a ViewDefinition subject is rejected at kick-off with 422', async () => {
+    const view = patientView()
+    view.select[0].column[0].path = 'id.((('
+    const res = await kickOff([subject([{ name: 'subjectResource', resource: view }])])
+    expect(res.status).toBe(422)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
   })
 
   test('two repetitions producing the same output name is 400 invalid naming subject', async () => {

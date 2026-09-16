@@ -89,11 +89,15 @@ before `202 Accepted` is returned with the status URL in `Content-Location`.
   failed job, an `OperationOutcome`.
 - `GET  /$sql-export/<id>/<name>.<format>` - downloads an output file.
 
-Jobs run in-process and are recorded under `EXPORT_DIR` (default `./export`,
-one directory per job holding `job.json` and the output files), so completed
+Jobs are recorded under `EXPORT_DIR` (default `./export`, one directory per
+job holding `job.json` and a `files/` directory with the outputs), so completed
 manifests and downloads remain available across restarts. Output is never
 expired automatically. A job still running when the server stops is reported
-as failed on the next start.
+as failed on the next start. Every subject is validated and probed against an
+empty data set at kick-off, so SQL and FHIRPath errors are rejected with `422`
+before a job is created. Subjects are evaluated sequentially on the server's
+event loop, so a large export delays other requests while a ViewDefinition is
+being evaluated; this is a reference server, not a scalable one.
 
 ```bash
 curl -i -X POST http://localhost:3000/\$sql-export \

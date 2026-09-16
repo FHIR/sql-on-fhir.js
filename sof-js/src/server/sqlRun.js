@@ -63,7 +63,7 @@ export async function runOperation(config, params, { baseUrl, accept }) {
 
   const format = negotiateFormat({ format: value(params, '_format'), accept, allowed: RUN_FORMATS })
   const representation = representationFor(accept)
-  if (format !== 'fhir' && representation === 'fhir+xml') {
+  if (representation === 'fhir+xml') {
     fail(406, 'not-supported', 'This server does not offer the XML envelope representation')
   }
 

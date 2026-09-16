@@ -11,7 +11,7 @@
  */
 
 import sqlite3 from 'sqlite3'
-import { fail, operationError, issue, SQL_TEXT_EXTENSION, parseCanonical } from './operations.js'
+import { fail, operationError, issue, SQL_TEXT_EXTENSION, parseCanonical, viewColumns } from './common.js'
 
 // Map a FHIR Library.parameter.type to the `value[x]` field carrying it.
 const PARAMETER_VALUE_FIELDS = {
@@ -168,18 +168,6 @@ async function insertRows(db, label, columns, rows) {
     await dbRun(db, 'ROLLBACK').catch(() => {})
     throw err
   }
-}
-
-function viewColumns(viewDefinition) {
-  const columns = []
-  const walk = (node) => {
-    if (!node) return
-    for (const c of node.column || []) columns.push({ name: c.name, type: c.type })
-    for (const s of node.select || []) walk(s)
-    for (const u of node.unionAll || []) walk(u)
-  }
-  for (const s of viewDefinition.select || []) walk(s)
-  return columns
 }
 
 function libraryKey(library) {

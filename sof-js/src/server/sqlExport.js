@@ -123,8 +123,26 @@ function resultUrl(baseUrl, exportId) {
   return `${baseUrl}/$sql-export/${exportId}/result`
 }
 
+// Output files live in their own directory so that no output name can collide
+// with job.json. Names are sanitised for the file system; the sanitised names
+// are checked for uniqueness at kick-off.
+const FILES_DIR = 'files'
+
 function fileNameFor(name, format) {
   return `${name.replace(/[^A-Za-z0-9_.-]/g, '_')}.${format}`
+}
+
+function outputPath(config, exportId, file) {
+  return path.join(jobDir(config, exportId), FILES_DIR, file)
+}
+
+/**
+ * A data source that yields one empty resource of the requested type, so that a
+ * subject can be executed at kick-off to surface schema, FHIRPath and SQL
+ * errors without reading any data.
+ */
+function probeDataSource(resourceType) {
+  return Promise.resolve([{ resourceType, id: 'probe' }])
 }
 
 /**
@@ -196,8 +214,10 @@ export async function startExport(config, params, baseUrl) {
     }
   }
   const names = new Set()
+  const files = new Set()
   for (const s of subjects) {
-    if (names.has(s.name)) {
+    const file = fileNameFor(s.name, format)
+    if (names.has(s.name) || files.has(file)) {
       errors.push(
         operationError(400, [
           issue('invalid', `Two subject repetitions would produce the output name '${s.name}'`, 'subject'),
@@ -205,6 +225,7 @@ export async function startExport(config, params, baseUrl) {
       )
     }
     names.add(s.name)
+    files.add(file)
   }
   let patientRefs = null
   try {
@@ -230,6 +251,25 @@ export async function startExport(config, params, baseUrl) {
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
   })
+
+  // A conformant subject that cannot be processed (SQL syntax error, invalid
+  // FHIRPath) is rejected here rather than surfacing at the result URL.
+  const probeErrors = []
+  for (const subject of subjects) {
+    try {
+      await executeSubject({
+        subject,
+        graph,
+        dataSource: probeDataSource,
+        parametersResource: subject.parametersResource,
+        expression: subject.expression,
+      })
+    } catch (err) {
+      probeErrors.push(err)
+    }
+  }
+  const probeCombined = combineErrors(probeErrors)
+  if (probeCombined) throw probeCombined
 
   const exportId = randomUUID()
   const job = {
@@ -279,7 +319,8 @@ async function runJob(config, job, subjects, graph) {
       const file = fileNameFor(subject.name, job.format)
       const body = formatRows(result.rows, result.columns, job.format, job.header)
       if (live.cancelled) return
-      fs.writeFileSync(path.join(jobDir(config, job.exportId), file), body)
+      fs.mkdirSync(path.join(jobDir(config, job.exportId), FILES_DIR), { recursive: true })
+      fs.writeFileSync(outputPath(config, job.exportId, file), body)
       job.outputs.push({ name: subject.name, file, rows: result.rows.length })
       saveJob(config, job)
     }
@@ -413,7 +454,7 @@ export function getStatus(req, res) {
   }
   sendFhir(res, 202, interimResponse(job), {
     'Retry-After': '1',
-    'X-Progress': `${job.outputs.length}/${job.subjects.length} subjects`,
+    'X-Progress': `${Math.round((job.outputs.length / job.subjects.length) * 100)}%`,
   })
 }
 
@@ -423,9 +464,7 @@ export function cancelExport(req, res) {
   if (!job) return
   const live = running.get(job.exportId)
   if (live) live.cancelled = true
-  for (const entry of fs.readdirSync(jobDir(req.config, job.exportId))) {
-    if (entry !== 'job.json') fs.rmSync(path.join(jobDir(req.config, job.exportId), entry), { force: true })
-  }
+  fs.rmSync(path.join(jobDir(req.config, job.exportId), FILES_DIR), { recursive: true, force: true })
   job.status = 'cancelled'
   job.outputs = []
   job.endTime = new Date().toISOString()
@@ -454,7 +493,7 @@ export function getOutput(req, res) {
   if (job.status !== 'completed' || !output) return notFound(res, `${req.params.id}/${req.params.file}`)
   res.setHeader('Content-Type', MEDIA_TYPES[job.format])
   res.setHeader('Content-Disposition', `attachment; filename="${output.file}"`)
-  res.sendFile(path.join(jobDir(req.config, job.exportId), output.file))
+  res.sendFile(outputPath(req.config, job.exportId, output.file))
 }
 
 export function mountRoutes(app) {
