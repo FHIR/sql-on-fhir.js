@@ -28,6 +28,7 @@ import {
   lookupCanonical,
   resolvePatientFilter,
   makeDataSource,
+  applySince,
   executeSubject,
   formatRows,
   combineErrors,
@@ -214,6 +215,13 @@ export async function startExport(config, params, baseUrl) {
   } catch (err) {
     errors.push(err)
   }
+  const since = value(params, '_since') || null
+  try {
+    // A malformed instant is a kick-off rejection, not a job failure.
+    applySince([], since)
+  } catch (err) {
+    errors.push(err)
+  }
   const combined = combineErrors(errors)
   if (combined) throw combined
 
@@ -230,7 +238,7 @@ export async function startExport(config, params, baseUrl) {
     status: 'accepted',
     format,
     header: value(params, 'header') !== false,
-    since: value(params, '_since') || null,
+    since,
     patientRefs: patientRefs ? [...patientRefs] : null,
     baseUrl,
     startTime: new Date().toISOString(),
