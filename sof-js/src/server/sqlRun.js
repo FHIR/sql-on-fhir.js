@@ -194,6 +194,12 @@ export async function postSqlRun(req, res) {
   await handle(req, res, params)
 }
 
+/**
+ * Mount the `$sql-run` routes. `$` is escaped so Express does not read it as a
+ * pattern character.
+ *
+ * @param {object} app - Express application.
+ */
 export function mountRoutes(app) {
   app.get('/\\$sql-run', getSqlRun)
   app.post('/\\$sql-run', postSqlRun)

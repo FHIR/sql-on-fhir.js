@@ -502,6 +502,12 @@ export function getOutput(req, res) {
   res.sendFile(outputPath(req.config, job.exportId, output.file))
 }
 
+/**
+ * Mount the `$sql-export` routes: kick-off, status, cancel, result and
+ * download. `$` is escaped so Express does not read it as a pattern character.
+ *
+ * @param {object} app - Express application.
+ */
 export function mountRoutes(app) {
   app.post('/\\$sql-export', postSqlExport)
   app.get('/\\$sql-export', getSqlExport)

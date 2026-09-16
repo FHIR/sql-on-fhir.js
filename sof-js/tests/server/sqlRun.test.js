@@ -239,6 +239,79 @@ describe('$sql-run output formats', () => {
     expect(body.parameter[0].part[0]).toEqual({ name: 'gender', valueInteger: expect.any(Number) })
   })
 
+  test('numbers and booleans survive materialisation through a SQLView', async () => {
+    const births = 'http://myig.org/ViewDefinition/patient_multiple_birth'
+    const viewUrl = 'https://example.org/Library/births_with_n'
+    const sqlView = sqlViewLibrary(viewUrl, 'SELECT id, multiple_birth, 42 AS n FROM p', [
+      { resource: births, label: 'p' },
+    ])
+    const lib = sqlQueryLibrary(
+      'SELECT id, multiple_birth, typeof(n) AS t, n FROM v WHERE multiple_birth = 0 LIMIT 1',
+      [{ resource: viewUrl, label: 'v' }],
+    )
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: 'context', resource: sqlView },
+        { name: '_format', valueCode: 'json' },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const [row] = await res.json()
+    expect(row).toMatchObject({ multiple_birth: false, t: 'integer', n: 42 })
+  })
+
+  test('an untyped numeric column keeps its number type and sorts numerically', async () => {
+    const view = {
+      resourceType: 'ViewDefinition',
+      url: 'https://example.org/ViewDefinition/untyped_values',
+      status: 'active',
+      resource: 'Observation',
+      select: [{ column: [{ name: 'v', path: 'value.ofType(Quantity).value' }] }],
+    }
+    const lib = sqlQueryLibrary('SELECT v, typeof(v) AS t FROM o WHERE v IS NOT NULL ORDER BY v LIMIT 3', [
+      { resource: view.url, label: 'o' },
+    ])
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: 'context', resource: view },
+        { name: '_format', valueCode: 'json' },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    expect(rows).toHaveLength(3)
+    for (const r of rows) {
+      expect(typeof r.v).toBe('number')
+      expect(['integer', 'real']).toContain(r.t)
+    }
+    expect(rows[0].v).toBeLessThanOrEqual(rows[1].v)
+    expect(rows[1].v).toBeLessThanOrEqual(rows[2].v)
+  })
+
+  test('a boolean-named column reused for text is not coerced to a boolean', async () => {
+    const lib = sqlQueryLibrary(
+      "SELECT id, CASE WHEN multiple_birth THEN 'yes' ELSE 'no' END AS multiple_birth FROM p LIMIT 2",
+      [{ resource: 'http://myig.org/ViewDefinition/patient_multiple_birth', label: 'p' }],
+    )
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: '_format', valueCode: 'json' },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const rows = await res.json()
+    for (const r of rows) expect(['yes', 'no']).toContain(r.multiple_birth)
+  })
+
   test('a unionAll view yields one column set in csv and as a SQL dependency', async () => {
     const unionView = {
       resourceType: 'ViewDefinition',

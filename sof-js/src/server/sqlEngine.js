@@ -54,6 +54,15 @@ const FHIR_TYPE_VALUE_FIELDS = {
   base64Binary: 'valueBase64Binary',
 }
 
+// Column definition for a materialised dependency table. A column whose FHIR
+// type maps to an affinity gets it; any other column is declared without a
+// type so that SQLite stores the engine's value as supplied (BLOB affinity)
+// rather than converting numbers and booleans to text.
+function columnDdl(name, type) {
+  const affinity = SQLITE_AFFINITY[type]
+  return affinity ? `"${name}" ${affinity}` : `"${name}"`
+}
+
 /**
  * The `value[x]` field for a declared FHIR column type.
  *
@@ -236,7 +245,7 @@ async function materialiseDependencies(library, db, ctx, stack) {
       if (columns.length === 0)
         fail(422, 'invalid', `ViewDefinition '${url}' declares no columns`, ctx.expression)
       for (const c of columns) if (!(c.name in columnTypes)) columnTypes[c.name] = c.type
-      const ddl = columns.map((c) => `"${c.name}" ${SQLITE_AFFINITY[c.type] || 'TEXT'}`).join(', ')
+      const ddl = columns.map((c) => columnDdl(c.name, c.type)).join(', ')
       await dbRun(db, `CREATE TABLE "${dep.label}" (${ddl})`)
       await insertRows(
         db,
@@ -247,7 +256,8 @@ async function materialiseDependencies(library, db, ctx, stack) {
     } else {
       const { rows, columns, columnTypes: nested } = await runView(artifact.resource, ctx, stack)
       for (const [name, type] of Object.entries(nested)) if (!(name in columnTypes)) columnTypes[name] = type
-      const ddl = columns.length > 0 ? columns.map((c) => `"${c}" TEXT`).join(', ') : '_empty INTEGER'
+      const ddl =
+        columns.length > 0 ? columns.map((c) => columnDdl(c, nested[c])).join(', ') : '_empty INTEGER'
       await dbRun(db, `CREATE TABLE "${dep.label}" (${ddl})`)
       if (columns.length > 0) await insertRows(db, dep.label, columns, rows)
     }
@@ -306,10 +316,12 @@ export async function runLibrary({
     }
     const { rows, columns } = await runSql(db, sql, bindings, expression)
     // SQLite has no boolean type; columns declared boolean by a ViewDefinition
-    // come back as 0/1 and are restored here so that every format sees booleans.
+    // come back as 0/1 and are restored here so that every format sees
+    // booleans. Only numeric cells are touched: a query may reuse the name for
+    // a value of another type.
     const booleans = columns.filter((c) => columnTypes[c] === 'boolean')
     for (const row of rows) {
-      for (const c of booleans) if (row[c] !== null && row[c] !== undefined) row[c] = Boolean(row[c])
+      for (const c of booleans) if (typeof row[c] === 'number') row[c] = row[c] !== 0
     }
     const valueFields = {}
     for (const c of columns) valueFields[c] = valueFieldForFhirType(columnTypes[c])
