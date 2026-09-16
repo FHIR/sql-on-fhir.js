@@ -24,7 +24,9 @@ function conformantSqlQuery() {
     id: 'test-query',
     status: 'active',
     type: {
-      coding: [{ system: 'https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes', code: 'sql-query' }],
+      coding: [
+        { system: 'http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes', code: 'sql-query' },
+      ],
     },
     relatedArtifact: [
       {
@@ -38,7 +40,7 @@ function conformantSqlQuery() {
         contentType: 'application/sql',
         extension: [
           {
-            url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+            url: 'http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text',
             valueString: 'SELECT COUNT(*) AS total FROM patient_demographics',
           },
         ],
@@ -58,7 +60,9 @@ function conformantSqlView() {
     id: 'test-view',
     status: 'active',
     type: {
-      coding: [{ system: 'https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes', code: 'sql-view' }],
+      coding: [
+        { system: 'http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes', code: 'sql-view' },
+      ],
     },
     relatedArtifact: [
       {
@@ -72,7 +76,7 @@ function conformantSqlView() {
         contentType: 'application/sql',
         extension: [
           {
-            url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
+            url: 'http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text',
             valueString: 'SELECT id, gender FROM patient_demographics',
           },
         ],

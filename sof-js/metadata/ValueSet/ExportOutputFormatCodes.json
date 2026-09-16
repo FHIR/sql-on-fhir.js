@@ -1,0 +1,31 @@
+{
+  "resourceType": "ValueSet",
+  "id": "ExportOutputFormatCodes",
+  "url": "http://hl7.org/fhir/uv/sql-on-fhir/ValueSet/ExportOutputFormatCodes",
+  "version": "0.0.1",
+  "name": "ExportOutputFormatCodes",
+  "title": "Export Output Format Codes",
+  "status": "active",
+  "experimental": false,
+  "compose": {
+    "include": [
+      {
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/OutputFormatCodes",
+        "concept": [
+          {
+            "code": "csv"
+          },
+          {
+            "code": "ndjson"
+          },
+          {
+            "code": "parquet"
+          },
+          {
+            "code": "json"
+          }
+        ]
+      }
+    ]
+  }
+}

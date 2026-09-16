@@ -1,0 +1,39 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "OutputFormatCodes",
+  "url": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/OutputFormatCodes",
+  "version": "0.0.1",
+  "name": "OutputFormatCodes",
+  "title": "Output Format Code System",
+  "status": "active",
+  "experimental": false,
+  "caseSensitive": true,
+  "content": "complete",
+  "concept": [
+    {
+      "code": "csv",
+      "display": "CSV",
+      "definition": "Comma-separated values"
+    },
+    {
+      "code": "ndjson",
+      "display": "NDJSON",
+      "definition": "Newline-delimited JSON"
+    },
+    {
+      "code": "parquet",
+      "display": "Parquet",
+      "definition": "Apache Parquet"
+    },
+    {
+      "code": "json",
+      "display": "JSON",
+      "definition": "JavaScript Object Notation"
+    },
+    {
+      "code": "fhir",
+      "display": "FHIR",
+      "definition": "FHIR Parameters resource"
+    }
+  ]
+}

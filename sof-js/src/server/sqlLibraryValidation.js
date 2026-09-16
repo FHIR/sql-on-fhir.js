@@ -149,7 +149,7 @@ export function validateSqlLibraryShape(library) {
     // SQL must be present via either base64 data or a sql-text extension.
     const hasSqlText = (entry.extension || []).some(
       (e) =>
-        e.url === 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text' &&
+        e.url === 'http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text' &&
         typeof e.valueString === 'string',
     )
     const hasData = typeof entry.data === 'string'
