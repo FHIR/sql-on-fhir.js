@@ -1,13 +1,16 @@
-import fs from 'fs';
-import path from 'path';
-import { wrapBundle, isHtml, metadataDir } from './utils.js';
-import { search, read, tableExists  } from './db.js';
-import { layout } from './ui.js';
+import fs from 'fs'
+import path from 'path'
+import { wrapBundle, isHtml, metadataDir } from './utils.js'
+import { search, read, tableExists } from './db.js'
+import { layout } from './ui.js'
 
 export async function getCapabilityStatementEndpoint(req, res) {
-    const capabilityStatement = JSON.parse(fs.readFileSync(path.join(metadataDir(), 'CapabilityStatement.json'), 'utf8'));
-    if (isHtml(req)) {
-        res.send(layout(`   
+  const capabilityStatement = JSON.parse(
+    fs.readFileSync(path.join(metadataDir(), 'CapabilityStatement.json'), 'utf8'),
+  )
+  if (isHtml(req)) {
+    res.send(
+      layout(`   
             <div class="container mx-auto p-4">
                 <div class="flex items-center space-x-4">
                     <a href="/" >Home</a>
@@ -17,20 +20,21 @@ export async function getCapabilityStatementEndpoint(req, res) {
                 <h1>Capability Statement</h1>
                 <pre>${JSON.stringify(capabilityStatement, null, 2)}</pre>
             </div>
-        `));
-    } else {
-        res.setHeader('Content-Type', 'application/fhir+json');
-        res.json(capabilityStatement);
-    }
-};
-
+        `),
+    )
+  } else {
+    res.setHeader('Content-Type', 'application/fhir+json')
+    res.json(capabilityStatement)
+  }
+}
 
 function renderResourceTypeList(resource) {
-    return `<li><a href="/${resource.resourceType}/${resource.id}"> ${resource.id}</a></li>`;
+  return `<li><a href="/${resource.resourceType}/${resource.id}"> ${resource.id}</a></li>`
 }
 
 function renderResourceTypeEndpoint(req, res, resourceType, resources) {
-    res.send(layout(`
+  res.send(
+    layout(`
         <div class="container mx-auto p-4">
             <div class="flex items-center space-x-4">
                 <a href="/" >Home</a>
@@ -42,43 +46,45 @@ function renderResourceTypeEndpoint(req, res, resourceType, resources) {
                 ${resources.map(renderResourceTypeList).join('')}
             </ul>
         </div>
-    `));
+    `),
+  )
 }
 
 export async function getResourceTypeEndpoint(req, res) {
-    const resourceType = req.params.resourceType;
-    if( ! await tableExists(req.config, resourceType) ) {
-        res.status(404);
-        res.json({
-            resourceType: 'OperationOutcome',
-            issue: [{ code: 'not-found', message: 'Resource type not found' }]
-        });
-        return;
-    }
-    const resources = await search(req.config, resourceType);
-    if(isHtml(req)) {
-        renderResourceTypeEndpoint(req, res, resourceType, resources);
-    } else {
-        res.setHeader('Content-Type', 'application/fhir+json');
-        res.json(wrapBundle(resources));
-    }
-};
+  const resourceType = req.params.resourceType
+  if (!(await tableExists(req.config, resourceType))) {
+    res.status(404)
+    res.json({
+      resourceType: 'OperationOutcome',
+      issue: [{ code: 'not-found', message: 'Resource type not found' }],
+    })
+    return
+  }
+  const resources = await search(req.config, resourceType)
+  if (isHtml(req)) {
+    renderResourceTypeEndpoint(req, res, resourceType, resources)
+  } else {
+    res.setHeader('Content-Type', 'application/fhir+json')
+    res.json(wrapBundle(resources))
+  }
+}
 
 export async function getResourceEndpoint(req, res) {
-    const resourceType = req.params.resourceType;
-    const id = req.params.id;
-    const resource = await read(req.config, resourceType, id);
-    if( resource == null ) {
-        res.status(404);
-        res.json({
-            resourceType: 'OperationOutcome',
-            issue: [{ code: 'not-found', message: 'Resource not found' }]
-        });
-        return;
-    } 
-    if (isHtml(req)) {
-        res.setHeader('Content-Type', 'text/html');
-        res.send(layout(`
+  const resourceType = req.params.resourceType
+  const id = req.params.id
+  const resource = await read(req.config, resourceType, id)
+  if (resource == null) {
+    res.status(404)
+    res.json({
+      resourceType: 'OperationOutcome',
+      issue: [{ code: 'not-found', message: 'Resource not found' }],
+    })
+    return
+  }
+  if (isHtml(req)) {
+    res.setHeader('Content-Type', 'text/html')
+    res.send(
+      layout(`
             <div class="container mx-auto p-4">
                 <div class="flex items-center space-x-4 mb-4">
                     <a href="/" >Home</a>
@@ -90,15 +96,16 @@ export async function getResourceEndpoint(req, res) {
                 <h1>${resource.resourceType}</h1>
                 <pre>${JSON.stringify(resource, null, 2)}</pre>
             </div>
-        `));
-    } else   {    
-        res.setHeader('Content-Type', 'application/fhir+json');
-        res.json(resource);
-    }
-};
+        `),
+    )
+  } else {
+    res.setHeader('Content-Type', 'application/fhir+json')
+    res.json(resource)
+  }
+}
 
 export function mountRoutes(app) {
-    app.get('/metadata', getCapabilityStatementEndpoint);
-    app.get('/:resourceType', getResourceTypeEndpoint);
-    app.get('/:resourceType/:id', getResourceEndpoint);
+  app.get('/metadata', getCapabilityStatementEndpoint)
+  app.get('/:resourceType', getResourceTypeEndpoint)
+  app.get('/:resourceType/:id', getResourceEndpoint)
 }

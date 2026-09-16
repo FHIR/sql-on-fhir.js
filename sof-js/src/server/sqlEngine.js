@@ -202,6 +202,17 @@ async function runSql(db, sql, bindings, expression) {
   return { rows, columns }
 }
 
+// Prepare a statement without running it; SQLite reports syntax errors and
+// unknown tables or columns at this stage.
+function prepareSql(db, sql, expression) {
+  return new Promise((resolve, reject) => {
+    const statement = db.prepare(sql, (err) => (err ? reject(err) : resolve()))
+    statement.finalize()
+  }).catch((err) => {
+    throw operationError(422, [issue('invalid', `SQL execution failed: ${err.message}`, expression)])
+  })
+}
+
 /**
  * Materialise every dependency of a Library into tables on `db`.
  * Returns the declared FHIR column types of ViewDefinition dependencies,
@@ -269,6 +280,8 @@ async function runView(library, ctx, stack) {
  * @param {(url: string) => {kind: string, resource: object}|null} options.resolveDependency - Resolves a dependency canonical URL (without version) to a ViewDefinition or SQLView.
  * @param {(view: object) => Promise<object[]>} options.evaluateView - Produces the rows of a ViewDefinition dependency.
  * @param {string} [options.expression='subject'] - Expression used in issues raised by execution.
+ * @param {boolean} [options.prepareOnly=false] - Prepare the statement instead of executing it, so that
+ *   syntax errors and unknown tables or columns surface without paying the query's cost.
  * @returns {Promise<{rows: object[], columns: string[], valueFields: object}>} rows, column order and the `value[x]` field per column where a declared FHIR type is known.
  * @throws {Error} 400 for bad parameter bindings, 404 for an unresolvable dependency, 422 for a cycle or SQL error.
  */
@@ -278,6 +291,7 @@ export async function runLibrary({
   resolveDependency,
   evaluateView,
   expression = 'subject',
+  prepareOnly = false,
 }) {
   const ctx = { resolveDependency, evaluateView, expression }
   const db = new sqlite3.Database(':memory:')
@@ -285,7 +299,12 @@ export async function runLibrary({
     const stack = new Set([libraryKey(library)])
     const columnTypes = await materialiseDependencies(library, db, ctx, stack)
     const bindings = bindParameters(library, parametersResource)
-    const { rows, columns } = await runSql(db, extractSql(library), bindings, expression)
+    const sql = extractSql(library)
+    if (prepareOnly) {
+      await prepareSql(db, sql, expression)
+      return { rows: [], columns: [], valueFields: {} }
+    }
+    const { rows, columns } = await runSql(db, sql, bindings, expression)
     // SQLite has no boolean type; columns declared boolean by a ViewDefinition
     // come back as 0/1 and are restored here so that every format sees booleans.
     const booleans = columns.filter((c) => columnTypes[c] === 'boolean')

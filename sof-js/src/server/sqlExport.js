@@ -178,7 +178,12 @@ async function prepareSubject(config, part, index, baseUrl) {
     bindParameters(subject.resource, parametersResource, `${prefix}parameters`)
   }
   const name = value(part, 'name') || subject.resource.name || `output-${index + 1}`
-  return { ...subject, name, parametersResource: parametersResource || null, expression: `${prefix}subject` }
+  return {
+    ...subject,
+    name,
+    parametersResource: parametersResource || null,
+    expression: `${prefix}${subject.form}`,
+  }
 }
 
 /**
@@ -263,6 +268,7 @@ export async function startExport(config, params, baseUrl) {
         dataSource: probeDataSource,
         parametersResource: subject.parametersResource,
         expression: subject.expression,
+        prepareOnly: true,
       })
     } catch (err) {
       probeErrors.push(err)

@@ -452,6 +452,10 @@ export async function resolveGraph({ subjects, context, lookup }) {
   const worklist = subjects.flatMap((s) =>
     dependenciesOf(s.kind ? s : { kind: artifactKind(s), resource: s }),
   )
+  // Unresolvable dependencies are collected rather than thrown at once, so that
+  // a context entry whose url is a typo is reported as the mistake it is
+  // (400 naming context) instead of resurfacing as a 404 on the dependency.
+  const missing = []
   while (worklist.length > 0) {
     const dep = worklist.shift()
     if (resolved.has(dep.url)) continue
@@ -465,11 +469,13 @@ export async function resolveGraph({ subjects, context, lookup }) {
     }
     if (!artifact) {
       const pinned = dep.version ? `${dep.url}|${dep.version}` : dep.url
-      fail(
-        404,
-        'not-found',
-        `Dependency '${pinned}' was neither supplied as a context entry nor resolvable by the server`,
+      missing.push(
+        issue(
+          'not-found',
+          `Dependency '${pinned}' was neither supplied as a context entry nor resolvable by the server`,
+        ),
       )
+      continue
     }
     if (artifact.kind !== 'ViewDefinition' && artifact.kind !== 'SQLView') {
       fail(
@@ -482,16 +488,17 @@ export async function resolveGraph({ subjects, context, lookup }) {
     if (artifact.kind === 'SQLView') worklist.push(...dependenciesOf(artifact))
   }
 
-  for (const url of contextByUrl.keys()) {
-    if (!used.has(url)) {
-      fail(
-        400,
+  const unmatched = [...contextByUrl.keys()]
+    .filter((url) => !used.has(url))
+    .map((url) =>
+      issue(
         'invalid',
         `Supplied context entry '${url}' does not match any relatedArtifact dependency of the subject`,
         'context',
-      )
-    }
-  }
+      ),
+    )
+  if (unmatched.length > 0) throw operationError(400, [...unmatched, ...missing])
+  if (missing.length > 0) throw operationError(404, missing)
   return resolved
 }
 
@@ -627,6 +634,8 @@ function evaluateView(viewDefinition, resources, expression) {
  * @param {(resourceType: string) => Promise<object[]>} options.dataSource - Filtered resource supplier.
  * @param {object|null} [options.parametersResource] - Bound parameter values for a SQL subject.
  * @param {string} [options.expression='subject'] - Expression used in issues raised by execution.
+ * @param {boolean} [options.prepareOnly=false] - Validate a SQL subject by preparing its statement over its
+ *   materialised dependencies instead of executing it; ViewDefinition subjects are still evaluated.
  * @returns {Promise<{rows: object[], columns: string[], valueFields: object}>} rows, column order and per-column value fields.
  * @throws {Error} 400 for bad parameter bindings, 422 for a subject that cannot be processed.
  */
@@ -636,6 +645,7 @@ export async function executeSubject({
   dataSource,
   parametersResource = null,
   expression = 'subject',
+  prepareOnly = false,
 }) {
   if (subject.kind === 'ViewDefinition') {
     const view = subject.resource
@@ -651,6 +661,7 @@ export async function executeSubject({
     resolveDependency: (url) => graph.get(url) || null,
     evaluateView: async (view) => evaluateView(view, await dataSource(view.resource), expression),
     expression,
+    prepareOnly,
   })
 }
 
@@ -685,16 +696,43 @@ export function formatRows(rows, columns, format, header = true) {
   throw operationError(500, [issue('exception', `No serialiser for format '${format}'`)])
 }
 
+function valueFieldForValue(v) {
+  if (typeof v === 'boolean') return 'valueBoolean'
+  if (typeof v === 'number') return Number.isInteger(v) ? 'valueInteger' : 'valueDecimal'
+  if (typeof v === 'string') return 'valueString'
+  return null
+}
+
 function inferValueField(column, rows) {
   for (const row of rows) {
     const v = row[column]
     if (v === null || v === undefined) continue
-    if (typeof v === 'boolean') return 'valueBoolean'
-    if (typeof v === 'number') return Number.isInteger(v) ? 'valueInteger' : 'valueDecimal'
-    if (typeof v === 'string') return 'valueString'
-    fail(422, 'invalid', `Result column '${column}' has a type with no FHIR value[x] mapping`)
+    const field = valueFieldForValue(v)
+    if (!field) fail(422, 'invalid', `Result column '${column}' has a type with no FHIR value[x] mapping`)
+    return field
   }
   return null
+}
+
+const NUMERIC_FIELDS = new Set(['valueInteger', 'valueInteger64', 'valueDecimal'])
+
+// A declared field carries the value only when the data agrees with it: a SQL
+// query may reuse a view column's name for a value of another type (for
+// example `COUNT(*) AS gender`), and SQLite is dynamically typed. Typed
+// (boolean and numeric) declarations win and the value is coerced; a
+// string-carrying declaration yields to the value's own type when the value
+// is not a string.
+function fieldForCell(declared, v) {
+  if (declared === 'valueBoolean' || NUMERIC_FIELDS.has(declared)) return declared
+  if (declared && typeof v === 'string') return declared
+  return valueFieldForValue(v) || declared
+}
+
+function coerceCell(field, v) {
+  if (field === 'valueBoolean') return Boolean(v)
+  if (NUMERIC_FIELDS.has(field)) return typeof v === 'string' ? Number(v) : v
+  if (typeof v === 'object') return JSON.stringify(v)
+  return typeof v === 'string' ? v : String(v)
 }
 
 /**
@@ -719,13 +757,8 @@ export function formatFhir(rows, valueFields) {
       part: Object.entries(row)
         .filter(([, v]) => v !== null && v !== undefined)
         .map(([column, v]) => {
-          const field = fields[column]
-          let coerced = v
-          if (field === 'valueBoolean') coerced = Boolean(v)
-          else if (field === 'valueInteger64' || field === 'valueDecimal')
-            coerced = typeof v === 'string' ? Number(v) : v
-          else if (typeof v === 'object') coerced = JSON.stringify(v)
-          return { name: column, [field]: coerced }
+          const field = fieldForCell(fields[column], v)
+          return { name: column, [field]: coerceCell(field, v) }
         }),
     })),
   }

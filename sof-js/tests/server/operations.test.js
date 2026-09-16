@@ -181,8 +181,14 @@ describe('resolveGraph', () => {
     const q = sqlQueryLibrary('SELECT 1', [{ resource: `${W}|2.0.0`, label: 'w' }])
     const wrong = patientView(W)
     wrong.version = '1.0.0'
+    // The entry with the wrong version matches nothing, which is reported as the
+    // mistake (400 naming context) with the unresolved dependency alongside.
     await expect(resolveGraph({ subjects: [q], context: [wrong], lookup })).rejects.toMatchObject({
-      status: 404,
+      status: 400,
+      issues: [
+        expect.objectContaining({ code: 'invalid', expression: ['context'] }),
+        expect.objectContaining({ code: 'not-found', diagnostics: expect.stringContaining(`${W}|2.0.0`) }),
+      ],
     })
     const right = patientView(W)
     right.version = '2.0.0'

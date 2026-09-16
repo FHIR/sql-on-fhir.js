@@ -331,7 +331,7 @@ describe('$sql-export rejected requests', () => {
     expect(res.status).toBe(422)
     const body = await outcome(res)
     expect(body.issue[0].code).toBe('invalid')
-    expect(body.issue[0].expression).toEqual(['subject[0].subject'])
+    expect(body.issue[0].expression).toEqual(['subject[0].subjectResource'])
   })
 
   test('an invalid FHIRPath expression in a ViewDefinition subject is rejected at kick-off with 422', async () => {

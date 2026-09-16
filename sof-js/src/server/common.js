@@ -5,6 +5,8 @@
  * Author: John Grimes
  */
 
+import { get_columns } from '../index.js'
+
 export const SPEC_BASE = 'http://hl7.org/fhir/uv/sql-on-fhir'
 export const SQL_TEXT_EXTENSION = `${SPEC_BASE}/StructureDefinition/sql-text`
 export const LIBRARY_TYPES_SYSTEM = `${SPEC_BASE}/CodeSystem/LibraryTypesCodes`
@@ -111,19 +113,28 @@ export function parseCanonical(canonical) {
 }
 
 /**
- * Declared columns of a ViewDefinition, in order.
+ * Declared columns of a ViewDefinition, in output order. The order comes from
+ * the engine's own column collection, which takes one column set per
+ * `unionAll`; the type is the first declaration of each name.
  *
  * @param {object} viewDefinition - The ViewDefinition.
  * @returns {{name: string, type: string|undefined}[]} the columns.
  */
 export function viewColumns(viewDefinition) {
-  const columns = []
+  const types = {}
   const walk = (node) => {
     if (!node) return
-    for (const c of node.column || []) columns.push({ name: c.name, type: c.type })
+    for (const c of node.column || []) if (!(c.name in types)) types[c.name] = c.type
     for (const s of node.select || []) walk(s)
     for (const u of node.unionAll || []) walk(u)
   }
   for (const s of viewDefinition.select || []) walk(s)
-  return columns
+  let names
+  try {
+    names = get_columns(viewDefinition)
+  } catch {
+    // An inconsistent union is reported when the view is evaluated.
+    names = Object.keys(types)
+  }
+  return names.map((name) => ({ name, type: types[name] }))
 }

@@ -222,6 +222,69 @@ describe('$sql-run output formats', () => {
     expect(typeof body.parameter[0].part[0].valueInteger).toBe('number')
   })
 
+  test('_format=fhir re-types a SQL column that reuses a view column name for another type', async () => {
+    const lib = sqlQueryLibrary('SELECT COUNT(*) AS gender FROM p', [
+      { resource: VIEW_CANONICAL, label: 'p' },
+    ])
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: '_format', valueCode: 'fhir' },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.parameter[0].part[0]).toEqual({ name: 'gender', valueInteger: expect.any(Number) })
+  })
+
+  test('a unionAll view yields one column set in csv and as a SQL dependency', async () => {
+    const unionView = {
+      resourceType: 'ViewDefinition',
+      url: 'https://example.org/ViewDefinition/union_names',
+      status: 'active',
+      resource: 'Patient',
+      select: [
+        { column: [{ name: 'id', path: 'getResourceKey()', type: 'id' }] },
+        {
+          unionAll: [
+            { forEach: 'name', column: [{ name: 'family', path: 'family', type: 'string' }] },
+            { forEach: 'contact.name', column: [{ name: 'family', path: 'family', type: 'string' }] },
+          ],
+        },
+      ],
+    }
+    const csv = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: unionView },
+        { name: '_format', valueCode: 'csv' },
+        { name: '_limit', valueInteger: 1 },
+      ]),
+    )
+    expect(csv.status).toBe(200)
+    const [header, row] = (await csv.text()).trimEnd().split('\n')
+    expect(header).toBe('id,family')
+    expect(row.split(',')).toHaveLength(2)
+
+    const lib = sqlQueryLibrary('SELECT COUNT(DISTINCT family) AS n FROM u', [
+      { resource: unionView.url, label: 'u' },
+    ])
+    const sql = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: 'context', resource: unionView },
+        { name: '_format', valueCode: 'json' },
+      ]),
+    )
+    expect(sql.status).toBe(200)
+    expect((await sql.json())[0].n).toBeGreaterThan(0)
+  })
+
   test('_format=fhir with zero rows returns Parameters with no parameter element', async () => {
     const res = await post(
       base,
@@ -420,6 +483,27 @@ describe('$sql-run conditional parameters', () => {
     expect(body.issue[0].code).toBe('invalid')
     expect(body.issue[0].expression).toEqual(['context'])
     expect(body.issue[0].diagnostics).toContain('https://example.org/ViewDefinition/typo')
+  })
+
+  test("the spec's worked example: a typo in context beats the dependency 404", async () => {
+    // The dependency is not on the server either; the mistake is still reported
+    // where it was made, as 400 naming context, with the 404 alongside.
+    const lib = sqlQueryLibrary('SELECT COUNT(*) AS n FROM p', [
+      { resource: 'https://example.org/ViewDefinition/patient_view', label: 'p' },
+    ])
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: 'context', resource: patientView('https://example.org/ViewDefinition/patient_veiw') },
+      ]),
+    )
+    expect(res.status).toBe(400)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
+    expect(body.issue[0].expression).toEqual(['context'])
+    expect(body.issue.map((i) => i.code)).toEqual(['invalid', 'not-found'])
   })
 
   test('a context entry with no url is 400 invalid', async () => {
