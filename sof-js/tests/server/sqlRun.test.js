@@ -312,6 +312,69 @@ describe('$sql-run output formats', () => {
     for (const r of rows) expect(['yes', 'no']).toContain(r.multiple_birth)
   })
 
+  test('_format=fhir keeps the text of a CASE expression under a boolean-named column', async () => {
+    const lib = sqlQueryLibrary(
+      "SELECT CASE WHEN multiple_birth THEN 'yes' ELSE 'no' END AS multiple_birth FROM p WHERE multiple_birth = 0 LIMIT 1",
+      [{ resource: 'http://myig.org/ViewDefinition/patient_multiple_birth', label: 'p' }],
+    )
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: '_format', valueCode: 'fhir' },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.parameter[0].part[0].valueString).toBe('no')
+  })
+
+  test('a binary result column is encoded as valueBase64Binary and base64 in flat formats', async () => {
+    const lib = sqlQueryLibrary("SELECT id, x'00ff' AS blob FROM p LIMIT 1", [
+      { resource: VIEW_CANONICAL, label: 'p' },
+    ])
+    const fhir = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: '_format', valueCode: 'fhir' },
+      ]),
+    )
+    expect(fhir.status).toBe(200)
+    const body = await fhir.json()
+    expect(body.parameter[0].part.find((p) => p.name === 'blob').valueBase64Binary).toBe(
+      Buffer.from([0, 255]).toString('base64'),
+    )
+
+    lib.content[0].extension[0].valueString = "SELECT id, x'00ff' AS blob FROM p LIMIT 1"
+    lib.content[0].data = Buffer.from(lib.content[0].extension[0].valueString).toString('base64')
+    const json = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: lib },
+        { name: '_format', valueCode: 'json' },
+      ]),
+    )
+    expect(json.status).toBe(200)
+    const row = (await json.json())[0]
+    expect(row.blob).toBe(Buffer.from([0, 255]).toString('base64'))
+  })
+
+  test('two dependencies sharing a label are 422, not a 500', async () => {
+    const lib = sqlQueryLibrary('SELECT 1 AS n FROM p', [
+      { resource: VIEW_CANONICAL, label: 'p' },
+      { resource: 'http://myig.org/ViewDefinition/observations', label: 'p' },
+    ])
+    const res = await post(base, '/$sql-run', parameters([{ name: 'subjectResource', resource: lib }]))
+    expect(res.status).toBe(422)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
+    expect(body.issue[0].expression).toEqual(['subjectResource'])
+  })
+
   test('a unionAll view yields one column set in csv and as a SQL dependency', async () => {
     const unionView = {
       resourceType: 'ViewDefinition',

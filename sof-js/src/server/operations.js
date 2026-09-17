@@ -671,7 +671,11 @@ export async function executeSubject({
 
 function csvEscape(value) {
   if (value === null || value === undefined) return ''
-  const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  const text = Buffer.isBuffer(value)
+    ? value.toString('base64')
+    : typeof value === 'object'
+      ? JSON.stringify(value)
+      : String(value)
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
 }
 
@@ -685,8 +689,18 @@ function csvEscape(value) {
  * @returns {string} the serialised body.
  */
 export function formatRows(rows, columns, format, header = true) {
-  if (format === 'json') return JSON.stringify(rows)
-  if (format === 'ndjson') return rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '')
+  if (format === 'json' || format === 'ndjson') {
+    // A Buffer serialises to a JSON object of bytes; binary columns are
+    // represented in base64, matching the fhir format.
+    const plain = rows.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([c, v]) => [c, Buffer.isBuffer(v) ? v.toString('base64') : v]),
+      ),
+    )
+    return format === 'json'
+      ? JSON.stringify(plain)
+      : plain.map((r) => JSON.stringify(r)).join('\n') + (plain.length ? '\n' : '')
+  }
   if (format === 'csv') {
     const cols = columns.length > 0 ? columns : rows.length > 0 ? Object.keys(rows[0]) : []
     const lines = header ? [cols.join(',')] : []
@@ -697,6 +711,7 @@ export function formatRows(rows, columns, format, header = true) {
 }
 
 function valueFieldForValue(v) {
+  if (Buffer.isBuffer(v)) return 'valueBase64Binary'
   if (typeof v === 'boolean') return 'valueBoolean'
   if (typeof v === 'number') return Number.isInteger(v) ? 'valueInteger' : 'valueDecimal'
   if (typeof v === 'string') return 'valueString'
@@ -718,19 +733,26 @@ const NUMERIC_FIELDS = new Set(['valueInteger', 'valueInteger64', 'valueDecimal'
 
 // A declared field carries the value only when the data agrees with it: a SQL
 // query may reuse a view column's name for a value of another type (for
-// example `COUNT(*) AS gender`), and SQLite is dynamically typed. Typed
-// (boolean and numeric) declarations win and the value is coerced; a
-// string-carrying declaration yields to the value's own type when the value
-// is not a string.
+// example `COUNT(*) AS gender`, or a CASE expression under a boolean column
+// name), and SQLite is dynamically typed. A declaration whose family matches
+// the value wins and the value is coerced within that family; otherwise the
+// value's own type is used.
 function fieldForCell(declared, v) {
-  if (declared === 'valueBoolean' || NUMERIC_FIELDS.has(declared)) return declared
-  if (declared && typeof v === 'string') return declared
-  return valueFieldForValue(v) || declared
+  const actual = valueFieldForValue(v)
+  if (declared === actual) return declared
+  if (declared === 'valueBoolean' && (typeof v === 'boolean' || typeof v === 'number')) return declared
+  if (NUMERIC_FIELDS.has(declared)) {
+    if (typeof v === 'number') return declared
+    if (typeof v === 'string' && Number.isFinite(Number(v))) return declared
+  }
+  if (declared === 'valueString' && typeof v === 'string') return declared
+  return actual || declared
 }
 
 function coerceCell(field, v) {
   if (field === 'valueBoolean') return Boolean(v)
   if (NUMERIC_FIELDS.has(field)) return typeof v === 'string' ? Number(v) : v
+  if (Buffer.isBuffer(v)) return v.toString('base64')
   if (typeof v === 'object') return JSON.stringify(v)
   return typeof v === 'string' ? v : String(v)
 }

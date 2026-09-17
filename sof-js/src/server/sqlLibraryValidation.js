@@ -164,8 +164,11 @@ export function validateSqlLibraryShape(library) {
     }
   })
 
-  // Validate relatedArtifact depends-on labels.
+  // Validate relatedArtifact depends-on labels: each must be a valid SQL
+  // identifier, and the labels must be unique or the materialised tables would
+  // collide.
   const deps = (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')
+  const seenLabels = new Set()
   deps.forEach((dep, idx) => {
     const label = dep.label
     if (!isValidSqlIdentifier(label)) {
@@ -177,6 +180,16 @@ export function validateSqlLibraryShape(library) {
         ),
       )
     }
+    if (seenLabels.has(label)) {
+      issues.push(
+        errorIssue(
+          'invalid',
+          `relatedArtifact[${idx}].label '${label}' is used by more than one dependency; each label must be unique.`,
+          `Library.relatedArtifact[${idx}].label`,
+        ),
+      )
+    }
+    seenLabels.add(label)
   })
 
   return issues
