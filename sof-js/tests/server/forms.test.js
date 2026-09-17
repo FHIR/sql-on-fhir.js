@@ -11,15 +11,17 @@ import { startTestServer, KNOWN_PATIENTS } from './helpers.js'
 
 let server
 let base
+let tx
 const port = 3012
 const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sof-forms-'))
 
 beforeAll(async () => {
-  ;({ server, base } = await startTestServer(port, { exportDir }))
+  ;({ server, base, tx } = await startTestServer(port, { exportDir }))
 }, 120000)
 
-afterAll(() => {
+afterAll(async () => {
   server?.close()
+  await tx?.close()
   fs.rmSync(exportDir, { recursive: true, force: true })
 })
 

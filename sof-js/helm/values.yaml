@@ -15,6 +15,10 @@ sqlOnFhir:
     # Example non-sensitive configuration
     # LOG_LEVEL: "info"
     # NODE_ENV: "production"
+    # FHIR terminology server used to expand ValueSet dependencies of SQL
+    # queries, and the cap on members per value set.
+    # TERMINOLOGY_SERVER_URL: "https://tx.fhir.org/r4"
+    # TERMINOLOGY_MAX_MEMBERS: "100000"
 
   persistence:
     enabled: false

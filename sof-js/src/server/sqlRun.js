@@ -7,6 +7,7 @@
  */
 
 import { getBaseUrl } from './utils.js'
+import { resolveValueSet } from './terminology.js'
 import {
   RUN_FORMATS,
   MEDIA_TYPES,
@@ -117,6 +118,7 @@ export async function runOperation(config, params, { baseUrl, accept }) {
     subjects: [subject],
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
+    lookupValueSet: (canonical) => resolveValueSet(canonical, config),
   })
 
   const dataSource = makeDataSource(

@@ -15,6 +15,7 @@
  */
 
 import { search } from './db.js'
+import { findStoredValueSet } from './terminology.js'
 
 // ---------------------------------------------------------------------------
 // Issue helpers
@@ -98,8 +99,8 @@ function isValidSqlIdentifier(label) {
  * - Every `content[].contentType` must start with `application/sql`.
  * - Every `content[]` entry must supply SQL via `data` or a `sql-text`
  *   extension.
- * - Every `relatedArtifact[type=depends-on].label` must be a valid SQL
- *   identifier.
+ * - Every `relatedArtifact[type=depends-on]` must name its target in
+ *   `resource` and bind it to a `label` that is a valid SQL identifier.
  *
  * @param {object} library - FHIR Library resource to validate.
  * @returns {Array<{severity: string, code: string, diagnostics: string, expression?: string}>} array of issues.
@@ -170,6 +171,15 @@ export function validateSqlLibraryShape(library) {
   const deps = (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')
   const seenLabels = new Set()
   deps.forEach((dep, idx) => {
+    if (typeof dep.resource !== 'string' || dep.resource === '') {
+      issues.push(
+        errorIssue(
+          'required',
+          `relatedArtifact[${idx}] is missing required 'resource'; a depends-on entry must name its target.`,
+          `Library.relatedArtifact[${idx}].resource`,
+        ),
+      )
+    }
     const label = dep.label
     if (!isValidSqlIdentifier(label)) {
       issues.push(
@@ -200,15 +210,16 @@ export function validateSqlLibraryShape(library) {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve a `relatedArtifact.resource` canonical to a ViewDefinition (first)
- * or a Library (second). Returns `null` when neither is found.
+ * Resolve a `relatedArtifact.resource` canonical to a ViewDefinition (first),
+ * a Library (second) or a stored ValueSet (third). Returns `null` when none
+ * is found.
  *
  * Uses `config.search` when present (for unit-test stubs that inject their
  * own search function) and falls back to the imported db `search` otherwise.
  *
  * @param {object} config - Server config.  May supply a `search` override.
  * @param {string} ref - The canonical URL or reference string to resolve.
- * @returns {Promise<{kind: 'ViewDefinition'|'Library', resource: object}|null>} resolved resource or null.
+ * @returns {Promise<{kind: 'ViewDefinition'|'Library'|'ValueSet', resource: object}|null>} resolved resource or null.
  */
 async function resolveDependencyTarget(config, ref) {
   // Allow the config to override the search function, which is useful for
@@ -223,6 +234,12 @@ async function resolveDependencyTarget(config, ref) {
   const libs = await searchFn(config, 'Library', 1000)
   const lib = libs.find((l) => l.url === ref || l.id === segment)
   if (lib) return { kind: 'Library', resource: lib }
+
+  // A stored ValueSet matches on url, and on version where the canonical pins
+  // one. Several stored versions of an unpinned url is a run-time error, not a
+  // validation concern, so it is reported here as resolved.
+  const vs = await findStoredValueSet(config, ref).catch(() => null)
+  if (vs) return { kind: 'ValueSet', resource: vs }
 
   return null
 }
@@ -258,11 +275,13 @@ export async function validateSqlLibrary(library, config) {
 
     if (!resolved) {
       // An unresolvable canonical is advisory - warn rather than error so
-      // existing queries with missing dependencies are not rejected.
+      // existing queries with missing dependencies are not rejected. A
+      // ValueSet the server does not hold may still resolve at run time via
+      // the terminology server.
       issues.push(
         warningIssue(
           'not-found',
-          `Dependency '${ref}' could not be resolved to a ViewDefinition or Library.`,
+          `Dependency '${ref}' could not be resolved to a stored ViewDefinition, Library or ValueSet; a ValueSet is expanded by the terminology server at run time.`,
           expr,
         ),
       )

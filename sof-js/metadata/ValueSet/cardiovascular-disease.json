@@ -1,0 +1,102 @@
+{
+  "resourceType": "ValueSet",
+  "id": "cardiovascular-disease",
+  "url": "http://myig.org/ValueSet/cardiovascular-disease",
+  "version": "1.0.0",
+  "name": "CardiovascularDisease",
+  "title": "Cardiovascular disease",
+  "status": "active",
+  "experimental": true,
+  "description": "SNOMED CT codes for cardiovascular disorders that occur in the Synthea demonstration data set. Ships with a complete expansion so that a SQLQuery can depend on it without a terminology server; the abstract grouping entry demonstrates that nested members are flattened and that abstract entries contribute no row. Author: John Grimes.",
+  "compose": {
+    "include": [
+      {
+        "system": "http://snomed.info/sct",
+        "concept": [
+          { "code": "59621000", "display": "Essential hypertension" },
+          { "code": "414545008", "display": "Ischemic heart disease" },
+          { "code": "22298006", "display": "Myocardial infarction" },
+          { "code": "401303003", "display": "Acute ST segment elevation myocardial infarction" },
+          { "code": "401314000", "display": "Acute non-ST segment elevation myocardial infarction" },
+          { "code": "4557003", "display": "Preinfarction syndrome" },
+          { "code": "88805009", "display": "Chronic congestive heart failure" },
+          { "code": "48724000", "display": "Mitral valve regurgitation" },
+          { "code": "230690007", "display": "Stroke" }
+        ]
+      }
+    ]
+  },
+  "expansion": {
+    "identifier": "urn:uuid:5b2f9c1e-6c1d-4b8e-9f3a-2d7e8a1c4f60",
+    "timestamp": "2026-09-16T00:00:00Z",
+    "total": 10,
+    "parameter": [
+      {
+        "name": "version",
+        "valueUri": "http://snomed.info/sct|http://snomed.info/sct/900000000000207008/version/20260201"
+      }
+    ],
+    "contains": [
+      {
+        "abstract": true,
+        "display": "Ischaemic heart disease",
+        "contains": [
+          {
+            "system": "http://snomed.info/sct",
+            "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+            "code": "414545008",
+            "display": "Ischemic heart disease"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+            "code": "22298006",
+            "display": "Myocardial infarction"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+            "code": "401303003",
+            "display": "Acute ST segment elevation myocardial infarction"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+            "code": "401314000",
+            "display": "Acute non-ST segment elevation myocardial infarction"
+          },
+          {
+            "system": "http://snomed.info/sct",
+            "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+            "code": "4557003",
+            "display": "Preinfarction syndrome"
+          }
+        ]
+      },
+      {
+        "system": "http://snomed.info/sct",
+        "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+        "code": "59621000",
+        "display": "Essential hypertension"
+      },
+      {
+        "system": "http://snomed.info/sct",
+        "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+        "code": "88805009",
+        "display": "Chronic congestive heart failure"
+      },
+      {
+        "system": "http://snomed.info/sct",
+        "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+        "code": "48724000",
+        "display": "Mitral valve regurgitation"
+      },
+      {
+        "system": "http://snomed.info/sct",
+        "version": "http://snomed.info/sct/900000000000207008/version/20260201",
+        "code": "230690007",
+        "display": "Stroke"
+      }
+    ]
+  }
+}

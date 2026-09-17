@@ -13,15 +13,17 @@ import { startTestServer, parameters, post, sqlQueryLibrary, patientView, KNOWN_
 
 let server
 let base
+let tx
 const port = 3011
 const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sof-export-'))
 
 beforeAll(async () => {
-  ;({ server, base } = await startTestServer(port, { exportDir }))
+  ;({ server, base, tx } = await startTestServer(port, { exportDir }))
 }, 120000)
 
-afterAll(() => {
+afterAll(async () => {
   server?.close()
+  await tx?.close()
   fs.rmSync(exportDir, { recursive: true, force: true })
 })
 

@@ -193,7 +193,7 @@ describe('resolveGraph', () => {
     const right = patientView(W)
     right.version = '2.0.0'
     const graph = await resolveGraph({ subjects: [q], context: [right], lookup })
-    expect(graph.get(W).resource.version).toBe('2.0.0')
+    expect(graph.get(`${W}|2.0.0`).resource.version).toBe('2.0.0')
   })
 
   test('an unresolvable dependency is 404 naming the canonical', async () => {
@@ -219,6 +219,46 @@ describe('resolveGraph', () => {
   test('a ViewDefinition subject contributes no dependencies', async () => {
     const graph = await resolveGraph({ subjects: [patientView()], context: [], lookup })
     expect(graph.size).toBe(0)
+  })
+
+  test('a dependency that is neither stored nor a context entry is resolved as a ValueSet', async () => {
+    const VS = 'https://example.org/ValueSet/vs|1'
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: VS, label: 'vs' }])
+    const record = { canonical: VS, rows: [], parameters: [] }
+    const seen = []
+    const lookupValueSet = async (canonical) => {
+      seen.push(canonical)
+      return record
+    }
+    const graph = await resolveGraph({ subjects: [q], context: [], lookup, lookupValueSet })
+    // The canonical is passed as written, version pin included.
+    expect(seen).toEqual([VS])
+    expect(graph.get(VS)).toEqual({ kind: 'ValueSet', resource: record })
+  })
+
+  test('a value set unknown to the terminology server is 404 naming the canonical', async () => {
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: W, label: 'w' }])
+    const lookupValueSet = async () => {
+      const err = new Error('nobody has heard of it')
+      err.status = 404
+      throw err
+    }
+    await expect(resolveGraph({ subjects: [q], context: [], lookup, lookupValueSet })).rejects.toMatchObject({
+      status: 404,
+      issues: [expect.objectContaining({ code: 'not-found', diagnostics: expect.stringContaining(W) })],
+    })
+  })
+
+  test('a value set whose membership cannot be determined fails the graph with 422', async () => {
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: W, label: 'w' }])
+    const lookupValueSet = async () => {
+      const err = new Error('server on fire')
+      err.status = 422
+      throw err
+    }
+    await expect(resolveGraph({ subjects: [q], context: [], lookup, lookupValueSet })).rejects.toMatchObject({
+      status: 422,
+    })
   })
 })
 
