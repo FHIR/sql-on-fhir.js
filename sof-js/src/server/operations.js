@@ -731,6 +731,21 @@ function inferValueField(column, rows) {
 
 const NUMERIC_FIELDS = new Set(['valueInteger', 'valueInteger64', 'valueDecimal'])
 
+// FHIR types whose JSON value is a string. A declared type from this family
+// keeps a string value as-is (a date stays a date, a code stays a code).
+const STRING_FIELDS = new Set([
+  'valueString',
+  'valueCode',
+  'valueUri',
+  'valueCanonical',
+  'valueId',
+  'valueDate',
+  'valueDateTime',
+  'valueTime',
+  'valueInstant',
+  'valueBase64Binary',
+])
+
 // A declared field carries the value only when the data agrees with it: a SQL
 // query may reuse a view column's name for a value of another type (for
 // example `COUNT(*) AS gender`, or a CASE expression under a boolean column
@@ -740,12 +755,12 @@ const NUMERIC_FIELDS = new Set(['valueInteger', 'valueInteger64', 'valueDecimal'
 function fieldForCell(declared, v) {
   const actual = valueFieldForValue(v)
   if (declared === actual) return declared
-  if (declared === 'valueBoolean' && (typeof v === 'boolean' || typeof v === 'number')) return declared
+  if (declared === 'valueBoolean' && typeof v === 'boolean') return declared
   if (NUMERIC_FIELDS.has(declared)) {
     if (typeof v === 'number') return declared
     if (typeof v === 'string' && Number.isFinite(Number(v))) return declared
   }
-  if (declared === 'valueString' && typeof v === 'string') return declared
+  if (STRING_FIELDS.has(declared) && typeof v === 'string') return declared
   return actual || declared
 }
 

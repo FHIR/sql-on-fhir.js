@@ -317,11 +317,15 @@ export async function runLibrary({
     const { rows, columns } = await runSql(db, sql, bindings, expression)
     // SQLite has no boolean type; columns declared boolean by a ViewDefinition
     // come back as 0/1 and are restored here so that every format sees
-    // booleans. Only numeric cells are touched: a query may reuse the name for
-    // a value of another type.
+    // booleans. Only exact 0/1 cells are touched: a stored boolean can only
+    // ever hold those, so a number under a boolean-named column is a computed
+    // value (a count or sum) and is left alone.
     const booleans = columns.filter((c) => columnTypes[c] === 'boolean')
     for (const row of rows) {
-      for (const c of booleans) if (typeof row[c] === 'number') row[c] = row[c] !== 0
+      for (const c of booleans) {
+        if (row[c] === 0) row[c] = false
+        else if (row[c] === 1) row[c] = true
+      }
     }
     const valueFields = {}
     for (const c of columns) valueFields[c] = valueFieldForFhirType(columnTypes[c])

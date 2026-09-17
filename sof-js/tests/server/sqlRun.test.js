@@ -330,6 +330,47 @@ describe('$sql-run output formats', () => {
     expect(body.parameter[0].part[0].valueString).toBe('no')
   })
 
+  test('_format=fhir types a declared date column as valueDate', async () => {
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectReference', valueReference: { reference: 'ViewDefinition/patient_demographics' } },
+        { name: '_format', valueCode: 'fhir' },
+        { name: '_limit', valueInteger: 1 },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    const part = body.parameter[0].part
+    expect(part.find((p) => p.name === 'date_of_birth').valueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  test('a computed number under a boolean-named column is left alone in every format', async () => {
+    const sql = 'SELECT COUNT(*) AS multiple_birth FROM p'
+    const lib = sqlQueryLibrary(sql, [
+      { resource: 'http://myig.org/ViewDefinition/patient_multiple_birth', label: 'p' },
+    ])
+    for (const format of ['json', 'fhir']) {
+      const res = await post(
+        base,
+        '/$sql-run',
+        parameters([
+          { name: 'subjectResource', resource: lib },
+          { name: '_format', valueCode: format },
+        ]),
+      )
+      expect(res.status).toBe(200)
+      if (format === 'json') {
+        const rows = await res.json()
+        expect(rows[0].multiple_birth).toBeGreaterThan(1)
+      } else {
+        const body = await res.json()
+        expect(body.parameter[0].part[0].valueInteger).toBeGreaterThan(1)
+      }
+    }
+  })
+
   test('a binary result column is encoded as valueBase64Binary and base64 in flat formats', async () => {
     const lib = sqlQueryLibrary("SELECT id, x'00ff' AS blob FROM p LIMIT 1", [
       { resource: VIEW_CANONICAL, label: 'p' },
