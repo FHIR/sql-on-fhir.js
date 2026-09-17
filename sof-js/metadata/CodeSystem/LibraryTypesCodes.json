@@ -1,0 +1,24 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "LibraryTypesCodes",
+  "url": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes",
+  "version": "0.0.1",
+  "name": "LibraryTypesCodes",
+  "title": "SQL Library Types Code System",
+  "status": "active",
+  "experimental": false,
+  "caseSensitive": true,
+  "content": "complete",
+  "concept": [
+    {
+      "code": "sql-query",
+      "display": "SQL Query Definition",
+      "definition": "The resource is a definition for a SQL Query"
+    },
+    {
+      "code": "sql-view",
+      "display": "SQL View Definition",
+      "definition": "The resource is a definition for a reusable SQL view that other queries reference as a virtual table source"
+    }
+  ]
+}

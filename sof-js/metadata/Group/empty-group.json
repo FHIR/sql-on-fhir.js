@@ -1,0 +1,7 @@
+{
+  "resourceType": "Group",
+  "id": "empty-group",
+  "name": "Empty Group",
+  "type": "person",
+  "actual": true
+}

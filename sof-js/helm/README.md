@@ -5,7 +5,7 @@ This Helm chart deploys the SQL on FHIR server on a Kubernetes cluster.
 ## Features
 
 - Health probes for reliable deployments (startup, liveness, readiness)
-- Optional persistent storage for the SQLite database
+- Optional persistent storage for the SQLite database and `$sql-export` job output
 - ConfigMap support for non-sensitive configuration
 - Resource requests and limits configuration
 - Pod scheduling controls (node selector, tolerations, affinity)
@@ -75,7 +75,7 @@ The following table lists the configurable parameters and their default values.
 | `sqlOnFhir.imagePullPolicy`                               | Image pull policy                                      | `IfNotPresent`               |
 | `sqlOnFhir.resources`                                     | Resource requests and limits                           | `{}` (unset)                 |
 | `sqlOnFhir.config`                                        | Non-sensitive environment variables as key-value pairs | `{}`                         |
-| `sqlOnFhir.persistence.enabled`                           | Enable persistent storage for database                 | `false`                      |
+| `sqlOnFhir.persistence.enabled`                           | Persist the database (`DB_PATH`) and `$sql-export` jobs (`EXPORT_DIR`) under `/app/data` | `false`                      |
 | `sqlOnFhir.persistence.storageClass`                      | Storage class for PVC                                  | `""` (default storage class) |
 | `sqlOnFhir.persistence.size`                              | Size of persistent volume                              | `1Gi`                        |
 | `sqlOnFhir.persistence.accessMode`                        | Access mode for PVC                                    | `ReadWriteOnce`              |

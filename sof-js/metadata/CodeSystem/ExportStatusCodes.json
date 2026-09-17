@@ -1,0 +1,39 @@
+{
+  "resourceType": "CodeSystem",
+  "id": "ExportStatusCodes",
+  "url": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/ExportStatusCodes",
+  "version": "0.0.1",
+  "name": "ExportStatusCodes",
+  "title": "Export Status Code System",
+  "status": "active",
+  "experimental": false,
+  "caseSensitive": true,
+  "content": "complete",
+  "concept": [
+    {
+      "code": "accepted",
+      "display": "Accepted",
+      "definition": "The export has been accepted and is awaiting processing"
+    },
+    {
+      "code": "cancelled",
+      "display": "Cancelled",
+      "definition": "The export has been cancelled"
+    },
+    {
+      "code": "completed",
+      "display": "Completed",
+      "definition": "The export has been completed"
+    },
+    {
+      "code": "failed",
+      "display": "Failed",
+      "definition": "The export has failed"
+    },
+    {
+      "code": "in-progress",
+      "display": "In progress",
+      "definition": "The export is currently in progress"
+    }
+  ]
+}

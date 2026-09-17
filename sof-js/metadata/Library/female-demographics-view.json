@@ -8,7 +8,7 @@
   "type": {
     "coding": [
       {
-        "system": "https://sql-on-fhir.org/ig/CodeSystem/LibraryTypesCodes",
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes",
         "code": "sql-view"
       }
     ]
@@ -26,10 +26,15 @@
       "contentType": "application/sql",
       "extension": [
         {
-          "url": "https://sql-on-fhir.org/ig/StructureDefinition/sql-text",
+          "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text",
           "valueString": "SELECT id, date_of_birth, gender FROM all_patients WHERE gender = 'female'"
         }
       ]
     }
-  ]
+  ],
+  "meta": {
+    "profile": [
+      "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLView"
+    ]
+  }
 }

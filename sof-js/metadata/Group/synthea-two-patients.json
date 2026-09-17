@@ -1,0 +1,19 @@
+{
+  "resourceType": "Group",
+  "id": "synthea-two-patients",
+  "name": "Synthea Two Patients",
+  "type": "person",
+  "actual": true,
+  "member": [
+    {
+      "entity": {
+        "reference": "Patient/5ab3b247-dc11-35cb-3ed6-8be889f6ccbe"
+      }
+    },
+    {
+      "entity": {
+        "reference": "Patient/3cad20f0-3f8f-acdf-5523-91548be2870b"
+      }
+    }
+  ]
+}

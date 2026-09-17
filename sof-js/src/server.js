@@ -1,41 +1,49 @@
+/**
+ * SQL on FHIR reference server.
+ *
+ * Authors: niquola, jmandel, John Grimes
+ */
+
 import express from 'express'
 import cors from 'cors'
+import path from 'path'
 import { fileURLToPath } from 'url'
-import { mountRoutes as mountExportRoutes } from './server/export.js'
-import { mountRoutes as mountRunRoutes } from './server/run.js'
+import { mountRoutes as mountSqlRunRoutes } from './server/sqlRun.js'
+import { mountRoutes as mountSqlExportRoutes, recoverJobs } from './server/sqlExport.js'
 import { mountRoutes as mountFhirRoutes } from './server/fhir.js'
 import { mountRoutes as mountViewsRoutes } from './server/views.js'
-import { mountRoutes as mountEvaluateRoutes } from './server/evaluate.js'
 import { mountRoutes as mountValidateRoutes } from './server/validate.js'
-import { mountRoutes as mountSqlQueryRunRoutes } from './server/sql.js'
+import { mountRoutes as mountFormRoutes } from './server/forms.js'
 import { migrate, getDb } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
 import { layout } from './server/ui.js'
+import { sendError, operationError, issue } from './server/common.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export async function getIndex(req, res) {
+  const link = (href, text) =>
+    `<li><a class="text-blue-500 hover:text-blue-700" href="${href}">${text}</a></li>`
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
     <div class="container mx-auto p-4">
       <h1 class="text-2xl font-bold mb-4">SQL on FHIR</h1>
-      <p class="mb-4">Welcome to the SQL on FHIR server. This server provides endpoints for executing SQL queries against FHIR resources.</p>
-      <p class="mb-4">The following endpoints are available:</p>
+      <p class="mb-4">Reference server for the SQL on FHIR operations. Both data operations are invoked at the system level and take a ViewDefinition, SQLQuery Library or SQLView Library as their subject.</p>
       <ul class="list-disc pl-5">
-        <li><a class="text-blue-500 hover:text-blue-700" href="/metadata">Metadata</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/$viewdefinition-export">$viewdefinition-export (system)</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/$sqlquery-run/form">$sqlquery-run (system)</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/ViewDefinition">ViewDefinitions</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/ViewDefinition/$evaluate">ViewDefinition/$evaluate</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/ViewDefinition/$viewdefinition-export">ViewDefinition/$viewdefinition-export</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/Library">SqlQueries</a></li>
-        <li><a class="text-blue-500 hover:text-blue-700" href="/Library/$sqlquery-run/form">Library/$sqlquery-run</a></li>
+        ${link('/metadata', 'CapabilityStatement')}
+        ${link('/$sql-run/form', '$sql-run (synchronous)')}
+        ${link('/$sql-export/form', '$sql-export (asynchronous)')}
+        ${link('/ViewDefinition', 'ViewDefinitions')}
+        ${link('/Library', 'Libraries (SQLQuery and SQLView)')}
+        ${link('/Group', 'Groups')}
+        ${link('/ViewDefinition/$validate', 'ViewDefinition/$validate')}
+        ${link('/Library/$validate/form', 'Library/$validate')}
         <hr class="my-4"/>
         ${resourceTypes
+          .slice()
           .sort()
-          .map(
-            (resourceType) =>
-              `<li><a class="text-blue-500 hover:text-blue-700" href="/${resourceType}">${resourceType}</a></li>`,
-          )
+          .map((resourceType) => link(`/${resourceType}`, resourceType))
           .join('\n')}
       </ul>
     </div>
@@ -43,52 +51,57 @@ export async function getIndex(req, res) {
   )
 }
 
+/**
+ * Start the server.
+ *
+ * @param {object} config - `{ port, exportDir?, db? }`. `exportDir` defaults to
+ *   the `EXPORT_DIR` environment variable, then `./export`.
+ * @returns {Promise<object>} the listening `http.Server`.
+ */
 export async function startServer(config) {
   const app = express()
-  // Middleware
   app.use(cors())
-  app.use(express.json({ type: ['application/json', 'application/fhir+json'] }))
+  app.use(express.json({ type: ['application/json', 'application/fhir+json'], limit: '50mb' }))
+  // A body that fails to parse is a client error; report it as an
+  // OperationOutcome rather than Express's HTML error page.
+  app.use((err, req, res, next) => {
+    if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+      return sendError(
+        res,
+        operationError(400, [issue('structure', `Request body is not valid JSON: ${err.message}`)]),
+      )
+    }
+    next(err)
+  })
   app.use(express.urlencoded({ extended: true }))
   config.db = getDb()
+  config.exportDir = path.resolve(config.exportDir || process.env.EXPORT_DIR || './export')
   migrate(config)
+  recoverJobs(config)
 
   app.use((req, res, next) => {
     req.config = config
     next()
   })
 
-  // Serve static files from the public directory
-  app.use(express.static('public'))
-  // Handle 404 errors for static content
-  app.use((req, res, next) => {
-    if (req.path.startsWith('/static') || req.path.startsWith('/assets')) {
-      return res.status(404).send('Static resource not found')
-    }
-    next()
-  })
+  app.use(express.static(path.join(__dirname, '..', 'public')))
 
-  mountExportRoutes(app)
-  mountRunRoutes(app)
-  mountEvaluateRoutes(app)
+  // Operation routes are mounted before the catch-all FHIR routes so that
+  // paths like /$sql-run are not shadowed by /:resourceType.
+  mountSqlRunRoutes(app)
+  mountSqlExportRoutes(app)
+  mountFormRoutes(app)
   mountValidateRoutes(app)
   mountViewsRoutes(app)
-  // Operation routes must be mounted before the catch-all FHIR routes so
-  // that paths like /$sqlquery-run/form are not shadowed by /:resourceType/:id.
-  mountSqlQueryRunRoutes(app)
   mountFhirRoutes(app)
   app.get('/', getIndex)
-  console.log('Routes mounted')
 
   return app.listen(config.port, () => {
     console.log(`Server running on port ${config.port}`)
   })
 }
 
-// Run server if this file is executed directly
+// Run the server when this file is executed directly.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const config = {
-    port: 3000,
-  }
-
-  startServer(config)
+  startServer({ port: Number(process.env.PORT) || 3000 })
 }
