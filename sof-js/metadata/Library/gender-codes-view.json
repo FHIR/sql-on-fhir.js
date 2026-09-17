@@ -1,0 +1,40 @@
+{
+  "resourceType": "Library",
+  "id": "gender-codes-view",
+  "url": "http://myig.org/Library/gender-codes-view",
+  "name": "GenderCodesView",
+  "title": "Gender codes view",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes",
+        "code": "sql-view"
+      }
+    ]
+  },
+  "description": "An SQLView over the administrative-gender value set relation, used to show that a value set reached through a view and directly from a query is resolved once per job. Author: John Grimes.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://hl7.org/fhir/ValueSet/administrative-gender|4.0.1",
+      "label": "gender_codes",
+      "display": "Administrative gender value set, exposed as a relation"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "data": "U0VMRUNUIGNvZGUsIGRpc3BsYXkgRlJPTSBnZW5kZXJfY29kZXM=",
+      "extension": [
+        {
+          "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text",
+          "valueString": "SELECT code, display FROM gender_codes"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "profile": ["http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLView"]
+  }
+}

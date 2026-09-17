@@ -4,14 +4,15 @@
  * Every `relatedArtifact[type=depends-on]` dependency is materialised into a
  * table in an in-memory SQLite database named after the artifact's `label`:
  * ViewDefinitions through the `evaluate()` engine, SQLViews by recursive
- * execution. The Library's SQL then runs against those tables with named
- * parameter bindings.
+ * execution, ValueSets as a relation of their members. The Library's SQL then
+ * runs against those tables with named parameter bindings.
  *
  * Author: John Grimes
  */
 
 import sqlite3 from 'sqlite3'
-import { fail, operationError, issue, SQL_TEXT_EXTENSION, parseCanonical, viewColumns } from './common.js'
+import { fail, operationError, issue, SQL_TEXT_EXTENSION, viewColumns } from './common.js'
+import { VALUE_SET_COLUMNS } from './terminology.js'
 
 // Map a FHIR Library.parameter.type to the `value[x]` field carrying it.
 const PARAMETER_VALUE_FIELDS = {
@@ -224,14 +225,18 @@ function prepareSql(db, sql, expression) {
 
 /**
  * Materialise every dependency of a Library into tables on `db`.
- * Returns the declared FHIR column types of ViewDefinition dependencies,
- * keyed by column name, for typing the `fhir` format.
+ * Returns the declared FHIR column types of ViewDefinition and ValueSet
+ * dependencies, keyed by column name, for typing the `fhir` format.
  */
 async function materialiseDependencies(library, db, ctx, stack) {
   const columnTypes = {}
+  const declare = (columns) => {
+    for (const c of columns) if (!(c.name in columnTypes)) columnTypes[c.name] = c.type
+    return columns.map((c) => columnDdl(c.name, c.type)).join(', ')
+  }
   for (const dep of (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')) {
-    const { url } = parseCanonical(dep.resource || '')
-    const artifact = ctx.resolveDependency(url)
+    const canonical = dep.resource || ''
+    const artifact = ctx.resolveDependency(canonical)
     if (!artifact) {
       fail(
         404,
@@ -243,15 +248,21 @@ async function materialiseDependencies(library, db, ctx, stack) {
       const view = artifact.resource
       const columns = viewColumns(view)
       if (columns.length === 0)
-        fail(422, 'invalid', `ViewDefinition '${url}' declares no columns`, ctx.expression)
-      for (const c of columns) if (!(c.name in columnTypes)) columnTypes[c.name] = c.type
-      const ddl = columns.map((c) => columnDdl(c.name, c.type)).join(', ')
-      await dbRun(db, `CREATE TABLE "${dep.label}" (${ddl})`)
+        fail(422, 'invalid', `ViewDefinition '${canonical}' declares no columns`, ctx.expression)
+      await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(columns)})`)
       await insertRows(
         db,
         dep.label,
         columns.map((c) => c.name),
         await ctx.evaluateView(view),
+      )
+    } else if (artifact.kind === 'ValueSet') {
+      await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(VALUE_SET_COLUMNS)})`)
+      await insertRows(
+        db,
+        dep.label,
+        VALUE_SET_COLUMNS.map((c) => c.name),
+        artifact.resource.rows,
       )
     } else {
       const { rows, columns, columnTypes: nested } = await runView(artifact.resource, ctx, stack)
@@ -287,7 +298,9 @@ async function runView(library, ctx, stack) {
  * @param {object} options - Inputs.
  * @param {object} options.library - The Library to execute.
  * @param {object|null} options.parametersResource - Parameter values (ignored for a SQLView, which declares none).
- * @param {(url: string) => {kind: string, resource: object}|null} options.resolveDependency - Resolves a dependency canonical URL (without version) to a ViewDefinition or SQLView.
+ * @param {(canonical: string) => {kind: string, resource: object}|null} options.resolveDependency - Resolves a
+ *   dependency canonical, as written in `relatedArtifact.resource`, to a ViewDefinition, SQLView or ValueSet
+ *   membership record.
  * @param {(view: object) => Promise<object[]>} options.evaluateView - Produces the rows of a ViewDefinition dependency.
  * @param {string} [options.expression='subject'] - Expression used in issues raised by execution.
  * @param {boolean} [options.prepareOnly=false] - Prepare the statement instead of executing it, so that

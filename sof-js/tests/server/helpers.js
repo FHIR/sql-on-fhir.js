@@ -5,20 +5,27 @@
  */
 
 import { startServer } from '../../src/server.js'
+import { startMockTerminologyServer } from './mockTerminologyServer.js'
 
 /**
  * Start the server on the given port and wait until the Synthea data has been
  * loaded (the first run of a ViewDefinition over Patient returns rows).
  *
+ * An unresolved dependency is tried as a ValueSet on the terminology server, so
+ * the server is pointed at a local mock rather than the public default. The
+ * mock is returned as `tx` so a suite can inspect its requests and close it.
+ *
  * @param {number} port - TCP port to listen on.
  * @param {object} [extra] - Additional config passed to `startServer`.
- * @returns {Promise<{server: object, base: string}>} the listening server and its base URL.
+ * @param {object} [mock] - Options for `startMockTerminologyServer`.
+ * @returns {Promise<{server: object, base: string, tx: object}>} the listening server, its base URL and the mock.
  */
-export async function startTestServer(port, extra = {}) {
+export async function startTestServer(port, extra = {}, mock = {}) {
   const base = `http://localhost:${port}`
-  const server = await startServer({ port, ...extra })
+  const tx = await startMockTerminologyServer(mock)
+  const server = await startServer({ port, terminologyServerUrl: tx.url, ...extra })
   await waitForData(base)
-  return { server, base }
+  return { server, base, tx }
 }
 
 async function waitForData(base, maxAttempts = 90) {

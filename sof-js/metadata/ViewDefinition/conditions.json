@@ -1,0 +1,43 @@
+{
+  "resourceType": "ViewDefinition",
+  "name": "conditions",
+  "description": "One row per Condition: the patient it belongs to and the system, version and code of its first coding. Author: John Grimes.",
+  "url": "http://myig.org/ViewDefinition/conditions",
+  "resource": "Condition",
+  "select": [
+    {
+      "column": [
+        {
+          "path": "getResourceKey()",
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "path": "subject.getReferenceKey(Patient)",
+          "name": "patient_id",
+          "type": "string"
+        },
+        {
+          "path": "code.coding.first().system",
+          "name": "system",
+          "type": "uri"
+        },
+        {
+          "path": "code.coding.first().version",
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "path": "code.coding.first().code",
+          "name": "code",
+          "type": "code"
+        },
+        {
+          "path": "code.coding.first().display",
+          "name": "display",
+          "type": "string"
+        }
+      ]
+    }
+  ]
+}

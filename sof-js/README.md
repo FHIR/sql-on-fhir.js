@@ -120,6 +120,65 @@ compartments of the named patients, using the FHIR R4
 `metadata/Group/`) and applies the same rule. `_since` keeps resources whose
 `meta.lastUpdated` is after the instant; resources without one are kept.
 
+### ValueSet dependencies
+
+A `relatedArtifact` entry with `type = "depends-on"` on a SQLQuery or SQLView
+Library may name a ValueSet by canonical URL, optionally pinned with
+`|version`. The value set is exposed to the SQL under the entry's `label` as a
+relation with the columns `system`, `version`, `code`, `display` and
+`inactive`, one row per member, unique on (`system`, `version`, `code`), as
+specified on the "Terminology in SQL" page of the SQL on FHIR Implementation
+Guide. Abstract entries in a hierarchical expansion contribute no row; nested
+entries are flattened.
+
+```json
+"relatedArtifact": [
+  { "type": "depends-on", "resource": "http://myig.org/ViewDefinition/conditions", "label": "conditions" },
+  { "type": "depends-on", "resource": "http://myig.org/ValueSet/cardiovascular-disease|1.0.0", "label": "cardiovascular_codes" }
+]
+```
+
+```sql
+SELECT DISTINCT conditions.patient_id
+FROM conditions
+WHERE EXISTS (
+  SELECT 1 FROM cardiovascular_codes
+  WHERE cardiovascular_codes.system = conditions.system
+    AND cardiovascular_codes.code = conditions.code
+)
+```
+
+Membership is resolved once per request (once per job on `$sql-export`, shared
+by every subject), before any SQL runs, in this order:
+
+1. A ValueSet stored in `metadata/ValueSet/` whose `url` (and `version`, where
+   pinned) matches. Its `expansion` is used when present; a ValueSet with only
+   a `compose` is posted to the terminology server's `$expand`.
+2. `GET ValueSet/$expand?url=…` on the terminology server, with
+   `valueSetVersion` where pinned, paging with `offset`/`count` until the
+   expansion is complete.
+
+A canonical URL that resolves to nothing, or to several stored versions when
+unpinned, is rejected with `404 Not Found`. A value set that resolves but whose
+membership cannot be determined - a terminology server failure, a stored
+expansion that is a page or lists fewer entries than its `total`, or more
+members than the configured cap - is rejected with `422 Unprocessable Entity`.
+The public `tx.fhir.org` refuses to expand value sets of more than 3000 codes
+(`too-costly`), which surfaces as this `422`; point `TERMINOLOGY_SERVER_URL` at
+a server without that limit for larger value sets. Each resolution writes one
+log line recording the canonical URL, the resolved version, the source, the
+expansion identifier and timestamp, the code system versions reported by the
+expansion and the member count.
+
+Configuration (environment variables):
+
+| Variable                  | Default                  | Purpose                                              |
+| ------------------------- | ------------------------ | ---------------------------------------------------- |
+| `TERMINOLOGY_SERVER_URL`  | `https://tx.fhir.org/r4` | Base URL of the FHIR terminology server              |
+| `TERMINOLOGY_MAX_MEMBERS` | `100000`                 | Maximum members per value set before a `422` is sent |
+
+A ValueSet cannot be supplied inline through the `context` parameter.
+
 ### Server extensions
 
 `POST /ViewDefinition/$validate` and `POST /Library/$validate` validate a
@@ -128,9 +187,12 @@ They are not part of the specification.
 
 ## Sample artifacts
 
-`metadata/ViewDefinition/` holds `patient_demographics`, `observations` and
-`patient_multiple_birth`. `metadata/Library/` holds SQLQuery Libraries
-(`patient-count`, `patient-by-id`, `female-patient-births`, ...) and SQLView
-Libraries (`patient-demographics-view`, `active-female-patients-view`, ...),
-including deliberately broken fixtures used by the tests (`ghost-dep-query`,
-`cycle-view-a`/`cycle-view-b`, `parameterised-view`).
+`metadata/ViewDefinition/` holds `patient_demographics`, `observations`,
+`patient_multiple_birth` and `conditions`. `metadata/Library/` holds SQLQuery
+Libraries (`patient-count`, `patient-by-id`, `female-patient-births`,
+`cardiovascular-patients`, `patients-by-gender`, ...) and SQLView Libraries
+(`patient-demographics-view`, `active-female-patients-view`,
+`gender-codes-view`, ...), including deliberately broken fixtures used by the
+tests (`ghost-dep-query`, `cycle-view-a`/`cycle-view-b`, `parameterised-view`).
+`metadata/ValueSet/cardiovascular-disease.json` is a value set with a complete
+expansion, used by `cardiovascular-patients`.
