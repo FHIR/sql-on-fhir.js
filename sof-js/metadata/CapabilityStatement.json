@@ -1,49 +1,59 @@
 {
   "resourceType": "CapabilityStatement",
   "status": "active",
-  "date": "2023-07-13T10:00:00Z",
+  "date": "2026-09-17T00:00:00Z",
   "publisher": "SQL on FHIR",
   "kind": "instance",
   "fhirVersion": "4.0.1",
   "format": ["application/fhir+json"],
   "rest": [{
     "mode": "server",
-    "resource": [{
-      "type": "ViewDefinition",
-      "interaction": [
-        { "code": "read" },
-        { "code": "search-type" },
-        { "code": "write" },
-        { "code": "patch" },
-        { "code": "delete" },
-        { "code": "create" }
-      ],
-      "operation": [
-        {
-          "name": "$viewdefinition-export",
-          "definition": "http://sql-on-fhir.org/OperationDefinition/$viewdefinition-export"
-        },
-        {
-          "name": "$evaluate",
-          "definition": "http://sql-on-fhir.org/OperationDefinition/$evaluate"
-        },
-        {
-          "name": "$validate",
-          "definition": "http://sql-on-fhir.org/OperationDefinition/$validate"
-        },
-        {
-          "name": "$run",
-          "definition": "http://sql-on-fhir.org/OperationDefinition/$run"
-        },
-        {
-          "name": "$materialize",
-          "definition": "http://sql-on-fhir.org/OperationDefinition/$materialize"
-        },
-        {
-          "name": "$refresh",
-          "definition": "http://sql-on-fhir.org/OperationDefinition/$refresh"
-        }
-      ]
-    }]
+    "operation": [
+      {
+        "name": "$sql-run",
+        "definition": "http://sql-on-fhir.org/OperationDefinition/sql-run",
+        "documentation": "Execute a ViewDefinition, SQLQuery Library or SQLView Library and return the result in the requested output format. Supported output formats: csv, json, ndjson, fhir. Binary envelope representation is supported for csv, json and ndjson. The parquet and source parameters are not supported."
+      },
+      {
+        "name": "$sql-export",
+        "definition": "http://sql-on-fhir.org/OperationDefinition/sql-export",
+        "documentation": "Export one or more ViewDefinitions, SQLQuery Libraries and SQLView Libraries as a single asynchronous job. Supported output formats: csv, json, ndjson. The parquet and source parameters are not supported."
+      }
+    ],
+    "resource": [
+      {
+        "type": "ViewDefinition",
+        "interaction": [
+          { "code": "read" },
+          { "code": "search-type" }
+        ],
+        "operation": [
+          {
+            "name": "$validate",
+            "definition": "http://sql-on-fhir.org/OperationDefinition/$validate"
+          }
+        ]
+      },
+      {
+        "type": "Library",
+        "interaction": [
+          { "code": "read" },
+          { "code": "search-type" }
+        ],
+        "operation": [
+          {
+            "name": "$validate",
+            "definition": "http://sql-on-fhir.org/OperationDefinition/Library-$validate"
+          }
+        ]
+      },
+      {
+        "type": "Group",
+        "interaction": [
+          { "code": "read" },
+          { "code": "search-type" }
+        ]
+      }
+    ]
   }]
 }
