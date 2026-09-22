@@ -1133,11 +1133,81 @@ describe('Library list', () => {
     })
     expect(res.status).toBe(200)
     const html = await res.text()
-    // Both type labels must appear somewhere in the rendered HTML.
+    // Both type labels must appear as section badges grouping the libraries.
     expect(html).toContain('SQL Query')
     expect(html).toContain('SQL View')
-    // The table must include a Type heading so the column is labelled.
-    expect(html).toContain('Type')
+  })
+})
+
+describe('Library create form + endpoint', () => {
+  test('GET /Library/new serves an HTML form (not treated as :id)', async () => {
+    const res = await fetch(`${base}/Library/new`, { headers: { Accept: 'text/html' } })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('New SQL Library')
+    // Dependency rows: a view select + a label input.
+    expect(html).toContain('name="dep_ref_0"')
+    expect(html).toContain('name="dep_label_0"')
+    expect(html).toContain('name="sql"')
+  })
+
+  test('POST /Library accepts dependency rows (view select + label)', async () => {
+    const libName = `rowdep_${Date.now()}`
+    const res = await fetch(`${base}/Library`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        name: libName,
+        type: 'sql-view',
+        dep_ref_0: 'http://myig.org/ViewDefinition/patient_demographics',
+        dep_label_0: 'demographics',
+        dep_ref_1: 'http://myig.org/ViewDefinition/patient_multiple_birth',
+        dep_label_1: 'births',
+        sql: 'SELECT * FROM demographics',
+      }).toString(),
+    })
+    expect(res.status).toBe(201)
+    const lib = await res.json()
+    const deps = (lib.relatedArtifact || []).filter((a) => a.type === 'depends-on')
+    expect(deps.map((d) => `${d.label}=${d.resource.split('/').pop()}`).sort()).toEqual([
+      'births=patient_multiple_birth',
+      'demographics=patient_demographics',
+    ])
+  })
+
+  test('POST /Library builds a sql-view with multiple dependencies from label=ref lines', async () => {
+    // Unique per run: sql.test.js uses the shared ./db.sqlite, which persists
+    // created Libraries across runs (a fixed name would 409 on the second run).
+    const libName = `birth_summary_${Date.now()}`
+    const res = await fetch(`${base}/Library`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      body: new URLSearchParams({
+        name: libName,
+        type: 'sql-view',
+        dependsOn:
+          'demographics = http://myig.org/ViewDefinition/patient_demographics\nbirths = http://myig.org/ViewDefinition/patient_multiple_birth',
+        sql: 'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id',
+      }).toString(),
+    })
+    expect(res.status).toBe(201)
+    const lib = await res.json()
+    expect(lib.id).toBe(libName)
+    expect(lib.type.coding[0].code).toBe('sql-view')
+    const deps = (lib.relatedArtifact || []).filter((a) => a.type === 'depends-on')
+    expect(deps.map((d) => d.label).sort()).toEqual(['births', 'demographics'])
+
+    // content carries BOTH base64 `data` and the plain-text sql-text extension.
+    const content = lib.content[0]
+    expect(content.contentType).toBe('application/sql')
+    const sqlText =
+      'SELECT d.id, d.gender, b.multiple_birth FROM demographics d LEFT JOIN births b ON d.id = b.id'
+    expect(Buffer.from(content.data, 'base64').toString('utf8')).toBe(sqlText)
+    expect(content.extension.find((e) => e.url.includes('sql-text')).valueString).toBe(sqlText)
+
+    // Readable back.
+    const got = await (await fetch(`${base}/Library/${libName}?_format=json`)).json()
+    expect(got.resourceType).toBe('Library')
   })
 })
 

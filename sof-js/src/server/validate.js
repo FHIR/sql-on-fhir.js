@@ -1,7 +1,7 @@
 import { errors as verrors } from '../validate.js'
-import { layout } from './ui.js'
+import { layout, escapeHtml } from './ui.js'
 import { read } from './db.js'
-import { renderOperationDefinition } from './utils.js'
+import { renderOperationDefinition, sqlContent } from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
 
 const defaultResource = {
@@ -145,13 +145,6 @@ export async function postValidateFormEndpoint(req, res) {
 // ---------------------------------------------------------------------------
 
 // Escape user-supplied strings before inserting them into HTML output.
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 
 // A sample SQLQuery Library used to pre-fill the validation form.
 const defaultLibraryResource = {
@@ -167,17 +160,7 @@ const defaultLibraryResource = {
       label: 'patient_demographics',
     },
   ],
-  content: [
-    {
-      contentType: 'application/sql',
-      extension: [
-        {
-          url: 'https://sql-on-fhir.org/ig/StructureDefinition/sql-text',
-          valueString: 'SELECT COUNT(*) AS total FROM patient_demographics',
-        },
-      ],
-    },
-  ],
+  content: sqlContent('SELECT COUNT(*) AS total FROM patient_demographics'),
 }
 
 /**

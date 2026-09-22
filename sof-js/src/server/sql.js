@@ -10,11 +10,31 @@
  */
 
 import sqlite3 from 'sqlite3'
-import { read, search } from './db.js'
+import { read, search, saveResource, run as dbRun, all as dbAll, close as dbClose } from './db.js'
 import { evaluate } from '../index.js'
-import { layout } from './ui.js'
-import { isHtml, renderOperationDefinition, wrapBundle } from './utils.js'
+import {
+  layout,
+  escapeHtml,
+  rowsTable,
+  FORM_INPUT,
+  formField,
+  legend,
+  breadcrumb,
+  tableIcon,
+  listSection,
+  pageHeader,
+  emptyState,
+} from './ui.js'
+import {
+  isHtml,
+  renderOperationDefinition,
+  wrapBundle,
+  csvField,
+  sanitizeIdent,
+  sqlContent,
+} from './utils.js'
 import { validateSqlLibrary } from './sqlLibraryValidation.js'
+import { runFromDestination, availableDestinations } from './materializedView.js'
 
 // Map a FHIR Library.parameter.type to the corresponding `value[x]` field
 // name on a Parameters.parameter entry.
@@ -198,12 +218,20 @@ async function resolveLibraryByRef(config, ref) {
  * @param {string} ref - Canonical URL or reference string.
  * @returns {Promise<{kind: 'ViewDefinition'|'Library', resource: object}|null>} resolved dependency or null.
  */
-async function resolveDependency(config, ref) {
+export async function resolveDependency(config, ref) {
   const vd = await resolveViewDefinition(config, ref)
   if (vd) return { kind: 'ViewDefinition', resource: vd }
   const lib = await resolveLibraryByRef(config, ref)
   if (lib) return { kind: 'Library', resource: lib }
   return null
+}
+
+// The logical dependency refs of a view resource: the resources listed in its
+// relatedArtifact[depends-on] (SQLView Libraries; ViewDefinitions usually none).
+export function logicalDependencyRefs(viewResource) {
+  return (viewResource.relatedArtifact || [])
+    .filter((a) => a.type === 'depends-on' && a.resource)
+    .map((a) => a.resource)
 }
 
 /**
@@ -225,6 +253,30 @@ function canonicalKey(library) {
 async function evaluateView(config, viewDef) {
   const data = await search(config, viewDef.resource, 1000)
   return evaluate(viewDef, data)
+}
+
+/**
+ * Resolve a view reference (a ViewDefinition or a SQLView Library) and build its
+ * rows together with column metadata. Reused by the MaterializedView resource to
+ * materialise a view into a persisted relation.
+ *
+ * @param {object} config - Server config.
+ * @param {string} ref - Canonical URL or reference of the view.
+ * @returns {Promise<{rows: object[], columns: {name: string, type: string}[], kind: string}>}
+ * @throws {SqlQueryRunError} 404 when the ref cannot be resolved.
+ */
+export async function materializeRefToRows(config, ref) {
+  const dep = await resolveDependency(config, ref)
+  if (!dep) {
+    throw new SqlQueryRunError(404, 'not-found', `View not found: ${ref}`)
+  }
+  if (dep.kind === 'ViewDefinition') {
+    const rows = await evaluateView(config, dep.resource)
+    return { rows, columns: viewColumns(dep.resource), kind: 'ViewDefinition' }
+  }
+  // SQLView Library — run its SQL over its own materialised dependencies.
+  const { rows, colNames } = await runLibraryToRows(dep.resource, config, new Set())
+  return { rows, columns: colNames.map((n) => ({ name: n, type: 'string' })), kind: 'SQLView' }
 }
 
 // Build column metadata for a ViewDefinition by walking its select tree.
@@ -254,29 +306,6 @@ function coerceForSqlite(value) {
   if (typeof value === 'boolean') return value ? 1 : 0
   if (typeof value === 'object') return JSON.stringify(value)
   return value
-}
-
-// Execute a SQLite operation and return its result as a Promise.
-function dbRun(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err)
-      else resolve(this)
-    })
-  })
-}
-
-function dbAll(db, sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err)
-      else resolve(rows)
-    })
-  })
-}
-
-function dbClose(db) {
-  return new Promise((resolve) => db.close(() => resolve()))
 }
 
 /**
@@ -399,7 +428,7 @@ async function runLibraryToRows(library, config, stack) {
  * @returns {Promise<object>} map from label to column metadata array.
  * @throws {SqlQueryRunError} on resolution failure, type mismatch, cycle, or SQL error.
  */
-async function materialiseDependencies(library, config, queryDb, stack = new Set()) {
+async function materialiseDependencies(library, config, queryDb, stack = new Set(), { destination } = {}) {
   const labelToColumns = {}
   const deps = (library.relatedArtifact || []).filter((a) => a.type === 'depends-on')
   for (const dep of deps) {
@@ -423,6 +452,21 @@ async function materialiseDependencies(library, config, queryDb, stack = new Set
       )
     }
 
+    // When a destination is chosen the query runs *over the materializations*:
+    // each dependency's virtual table is seeded from its materialized relation
+    // on that destination instead of being recomputed from FHIR data.
+    let materialized = null
+    if (destination) {
+      materialized = await runFromDestination(config, resolved.resource, destination)
+      if (!materialized) {
+        throw new SqlQueryRunError(
+          404,
+          'not-found',
+          `Dependency '${label}' (${dep.resource}) is not materialized on destination '${destination}'`,
+        )
+      }
+    }
+
     if (resolved.kind === 'ViewDefinition') {
       // Existing ViewDefinition path: use declared column types and evaluate().
       const viewDef = resolved.resource
@@ -435,7 +479,7 @@ async function materialiseDependencies(library, config, queryDb, stack = new Set
       const colDdl = columns.map((c) => `"${c.name}" ${columnAffinity(c.type)}`).join(', ')
       await dbRun(queryDb, `CREATE TABLE "${label}" (${colDdl})`)
 
-      const rows = await evaluateView(config, viewDef)
+      const rows = materialized ? materialized.rows : await evaluateView(config, viewDef)
       if (rows.length > 0) {
         const placeholders = columns.map(() => '?').join(', ')
         const colList = columns.map((c) => `"${c.name}"`).join(', ')
@@ -454,9 +498,21 @@ async function materialiseDependencies(library, config, queryDb, stack = new Set
         }
       }
     } else {
-      // Library (SQLView) path: execute recursively and materialise results.
+      // Library (SQLView) path: execute recursively and materialise results,
+      // or read the stored relation when running against a destination.
       const depLib = resolved.resource
-      const { rows, colNames } = await runLibraryToRows(depLib, config, stack)
+      const { rows, colNames } = materialized
+        ? {
+            rows: materialized.rows,
+            // Use the relation's schema (available even for an empty relation)
+            // so a query referencing the dependency's columns still resolves.
+            colNames: materialized.columns?.length
+              ? materialized.columns
+              : materialized.rows.length
+                ? Object.keys(materialized.rows[0])
+                : [],
+          }
+        : await runLibraryToRows(depLib, config, stack)
 
       // Derive the table DDL from the view's result-set column names.  All
       // columns use TEXT affinity; SQLite coerces on read and the runtime
@@ -567,20 +623,11 @@ function formatRows(rows, format, includeHeader) {
     const lines = []
     if (includeHeader) lines.push(cols.join(','))
     for (const row of rows) {
-      lines.push(cols.map((c) => csvEscape(row[c])).join(','))
+      lines.push(cols.map((c) => csvField(row[c])).join(','))
     }
     return { contentType: 'text/csv', body: lines.join('\n') }
   }
   throw new SqlQueryRunError(400, 'invalid', `Unsupported _format '${format}'`)
-}
-
-function csvEscape(value) {
-  if (value === null || value === undefined) return ''
-  const s = String(value)
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return '"' + s.replace(/"/g, '""') + '"'
-  }
-  return s
 }
 
 /**
@@ -701,14 +748,14 @@ function inferRuntimeTypesFromRows(rows, colNames) {
  * When the target is an `sql-view` no parameter bindings are applied; views
  * are always executed with an empty parameter set.
  */
-async function executeSqlQueryRun({ library, parametersResource, format, header, config }) {
+async function executeSqlQueryRun({ library, parametersResource, format, header, config, destination }) {
   const queryDb = new sqlite3.Database(':memory:')
   try {
     // Seed the path set with the top-level library so recursive SQLView
     // execution can detect cycles that loop back to the top-level resource.
     const topKey = canonicalKey(library)
     const stack = new Set([topKey])
-    const labelToColumns = await materialiseDependencies(library, config, queryDb, stack)
+    const labelToColumns = await materialiseDependencies(library, config, queryDb, stack, { destination })
 
     // SQLView targets are run with no parameter bindings; only sql-query
     // Libraries accept caller-supplied parameters.
@@ -727,9 +774,9 @@ async function executeSqlQueryRun({ library, parametersResource, format, header,
     }
     if (format === 'fhir') {
       const columnFhirTypes = await resolveColumnFhirTypes(queryDb, sql, bindings, rows, labelToColumns)
-      return formatFhir(rows, columnFhirTypes)
+      return { ...formatFhir(rows, columnFhirTypes), rows }
     }
-    return formatRows(rows, format, header)
+    return { ...formatRows(rows, format, header), rows }
   } finally {
     await dbClose(queryDb)
   }
@@ -805,14 +852,6 @@ export async function postSqlQueryRunInstance(req, res) {
 
 // Escape user-supplied or resource-derived strings before inserting them into
 // the HTML form output.
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
 // Pick the HTML input type that best fits a FHIR primitive parameter type.
 function inputTypeForFhirType(type) {
   switch (type) {
@@ -992,38 +1031,31 @@ async function renderForm(req, res, { scope, library }) {
   const resolvedDepsForDisplay =
     scope === 'instance' ? await resolveDependenciesForDisplay(library, req.config) : []
 
+  const destinations = availableDestinations()
+
   const sourceFields =
     scope === 'instance'
-      ? `<p class="text-sm text-gray-500">Library: <a href="/Library/${escapeHtml(library.id)}">${escapeHtml(library.id)}</a></p>`
+      ? `<p class="text-sm text-gray-500">Library
+           <a class="font-mono text-blue-600 hover:underline" href="/Library/${escapeHtml(library.id)}">${escapeHtml(library.id)}</a></p>`
       : `
-          <p class="text-sm text-gray-500">
-            Choose a stored Library or paste an inline Library JSON. If both
-            are provided, the inline resource takes precedence.
+          <p class="text-sm text-gray-500 mb-2">
+            Choose a stored Library or paste an inline Library JSON. If both are
+            provided, the inline resource takes precedence.
           </p>
-          <table class="mt-2">
-            <tr>
-              <th>queryReference</th>
-              <td>
-                <select name="queryReference"
-                        hx-get="${formAction}/parameters"
-                        hx-target="#parameter-fields"
-                        hx-swap="innerHTML"
-                        hx-trigger="change">
-                  <option value="">- choose -</option>
-                  ${libraries
-                    .map((l) => `<option value="Library/${escapeHtml(l.id)}">${escapeHtml(l.id)}</option>`)
-                    .join('')}
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <th>queryResource</th>
-              <td>
-                <textarea name="queryResource" rows="10" cols="80"
-                  placeholder='Paste a Library resource JSON, e.g. {"resourceType":"Library", ...}'></textarea>
-              </td>
-            </tr>
-          </table>
+          <label class="block font-semibold mb-1">queryReference</label>
+          <select name="queryReference" class="${FORM_INPUT}"
+                  hx-get="${formAction}/parameters"
+                  hx-target="#parameter-fields"
+                  hx-swap="innerHTML"
+                  hx-trigger="change">
+            <option value="">— choose a Library —</option>
+            ${libraries
+              .map((l) => `<option value="Library/${escapeHtml(l.id)}">${escapeHtml(l.id)}</option>`)
+              .join('')}
+          </select>
+          <label class="block font-semibold mb-1 mt-3">queryResource <span class="text-gray-400 font-normal text-sm">(optional inline JSON)</span></label>
+          <textarea name="queryResource" rows="8" class="${FORM_INPUT} font-mono text-xs"
+            placeholder='{"resourceType":"Library", ...}'></textarea>
         `
 
   // For instance scope the Library is already known, so render its declared
@@ -1034,57 +1066,62 @@ async function renderForm(req, res, { scope, library }) {
       ? renderInstanceParameterFields(library)
       : `<div id="parameter-fields">${renderParametersJsonTextarea()}</div>`
 
+  const destinationField = `
+    <label class="block font-semibold mb-1">Destination
+      <span class="text-gray-400 font-normal text-sm">— run against materializations instead of recomputing</span>
+    </label>
+    <select name="destination" class="${FORM_INPUT}">
+      <option value="">recompute live (from FHIR data)</option>
+      ${destinations.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
+    </select>`
+
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
-      <div class="container mx-auto p-4">
-        <div class="flex items-center gap-4">${renderBreadcrumbs(scope, library)}</div>
-        <h1 class="mt-4">SQLQuery Run</h1>
-        <p class="mb-4">${escapeHtml(operation?.description || '')}</p>
-        <form
+      <div class="container mx-auto p-4 max-w-2xl">
+        <div class="flex gap-2 items-center text-sm">${renderBreadcrumbs(scope, library)}</div>
+        <h1 class="mt-4 text-2xl font-bold">SQL Query Run</h1>
+        <p class="mt-1 text-gray-500">${escapeHtml(operation?.description || '')}</p>
+        <form class="mt-4 space-y-5"
           hx-post="${formAction}"
           hx-target="#sqlquery-result"
           hx-swap="innerHTML">
-          <h3 class="font-bold mt-4">Library source</h3>
-          ${sourceFields}
+
+          <fieldset class="space-y-2">
+            ${legend('Library source')}
+            ${sourceFields}
+          </fieldset>
 
           ${
             scope === 'instance'
-              ? `<h3 class="font-bold mt-4">Dependencies (virtual tables)</h3>
-          ${renderDependenciesPanel(resolvedDepsForDisplay)}`
+              ? `<fieldset class="space-y-2">${legend('Dependencies (virtual tables)')}${renderDependenciesPanel(resolvedDepsForDisplay)}</fieldset>`
               : ''
           }
 
-          <h3 class="font-bold mt-4">Library parameters</h3>
-          ${parameterFields}
+          <fieldset class="space-y-2">
+            ${legend('Library parameters')}
+            ${parameterFields}
+          </fieldset>
 
-          <h3 class="font-bold mt-4">Output</h3>
-          <table class="mt-2">
-            <tr>
-              <th>_format</th>
-              <td>
-                <select name="_format">
-                  <option value="json">json</option>
-                  <option value="ndjson">ndjson</option>
-                  <option value="csv">csv</option>
-                  <option value="fhir">fhir</option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <th>header</th>
-              <td>
-                <label>
-                  <input type="checkbox" name="header" value="true" checked />
-                  Include CSV header (only applies to csv output)
-                </label>
-              </td>
-            </tr>
-          </table>
+          <fieldset class="space-y-3">
+            ${legend('Run options')}
+            <div>
+              <label class="block font-semibold mb-1">_format</label>
+              <select name="_format" class="${FORM_INPUT}">
+                <option value="json">json</option>
+                <option value="ndjson">ndjson</option>
+                <option value="csv">csv</option>
+                <option value="fhir">fhir</option>
+              </select>
+            </div>
+            <div>${destinationField}</div>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="header" value="true" checked />
+              Include CSV header (only applies to csv output)
+            </label>
+          </fieldset>
 
-          <div class="mt-4">
-            <button class="btn" type="submit">Run</button>
-          </div>
+          <button type="submit" class="btn">Run</button>
         </form>
         <div id="sqlquery-result" class="mt-4"></div>
 
@@ -1154,11 +1191,18 @@ function buildInstanceParametersResource(library, form) {
 // Send the rendered result region back to the browser. htmx swaps inner HTML
 // of #sqlquery-result; non-htmx callers get a fully laid-out page.
 function sendFormResult(req, res, result) {
+  const rowCount = Array.isArray(result.rows) ? result.rows.length : 0
   const html = `
     <div>
-      <h2 class="text-xl font-bold">Result</h2>
-      <p class="text-xs text-gray-500 mt-1">Content-Type: <code>${escapeHtml(result.contentType)}</code></p>
-      <pre class="mt-2">${escapeHtml(result.body)}</pre>
+      <div class="flex items-center gap-2">
+        <h2 class="text-xl font-bold">Result</h2>
+        <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs tabular-nums">${rowCount} row${rowCount === 1 ? '' : 's'}</span>
+      </div>
+      ${rowsTable(result.rows)}
+      <details class="mt-3">
+        <summary class="text-sky-600 hover:text-sky-700 cursor-pointer text-sm">Raw <code>${escapeHtml(result.contentType)}</code></summary>
+        <pre class="mt-2">${escapeHtml(result.body)}</pre>
+      </details>
     </div>
   `
   res.setHeader('Content-Type', 'text/html')
@@ -1204,6 +1248,7 @@ async function handleFormSubmit(req, res, { scope, id }) {
     const form = req.body || {}
     const format = form._format || 'json'
     const header = form.header === 'true'
+    const destination = form.destination || null
 
     let library
     let parametersResource
@@ -1257,6 +1302,7 @@ async function handleFormSubmit(req, res, { scope, id }) {
       format,
       header,
       config: req.config,
+      destination,
     })
     sendFormResult(req, res, result)
   } catch (err) {
@@ -1334,66 +1380,50 @@ function libraryTypeLabel(lib) {
   return 'Unknown'
 }
 
-// Render a Library list page with a Type column that distinguishes SQL Query
-// from SQL View, mirroring the ViewDefinition list.
-function renderLibrariesHtml(res, libraries) {
-  const rows = libraries
-    .map((lib) => {
-      const name = lib.name || lib.id
-      const title = lib.title || ''
-      const url = lib.url || ''
-      const typeLabel = libraryTypeLabel(lib)
-      return `
-        <tr>
-          <td class="border border-gray-200 p-2">
-            <a class="text-blue-500 hover:text-blue-700"
-               href="/Library/${escapeHtml(lib.id)}">
-              ${escapeHtml(name)}
-            </a>
-          </td>
-          <td class="border border-gray-200 p-2">${escapeHtml(title)}</td>
-          <td class="border border-gray-200 p-2 text-xs">${escapeHtml(url)}</td>
-          <td class="border border-gray-200 p-2">
-            <span class="inline-block rounded px-2 py-0.5 text-xs font-medium
-                         ${typeLabel === 'SQL View' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}">
-              ${escapeHtml(typeLabel)}
-            </span>
-          </td>
-          <td class="border border-gray-200 p-2">
-            <a class="text-blue-500 hover:text-blue-700"
-               href="/Library/${escapeHtml(lib.id)}/$sqlquery-run/form">
-              $sqlquery-run
-            </a>
-          </td>
-        </tr>
-      `
-    })
-    .join('')
+function libraryRow(lib) {
+  const name = lib.name || lib.id
+  const sub = lib.title || lib.url || ''
+  return `
+      <li class="group flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+        ${tableIcon()}
+        <div class="flex-1 min-w-0">
+          <a href="/Library/${escapeHtml(lib.id)}"
+             class="font-semibold text-blue-600 hover:underline truncate">${escapeHtml(name)}</a>
+          <div class="mt-0.5 text-xs text-gray-500 truncate font-mono" title="${escapeHtml(lib.url || '')}">${escapeHtml(sub)}</div>
+        </div>
+        <div class="shrink-0 flex items-center gap-3 text-sm">
+          <a class="text-blue-600 hover:underline opacity-60 group-hover:opacity-100"
+             href="/Library/${escapeHtml(lib.id)}/$sqlquery-run/form">$sqlquery-run</a>
+        </div>
+      </li>`
+}
 
+// Render a Library list page grouped by type (SQL Query / SQL View), mirroring
+// the ViewDefinition and MaterializedView list pages.
+function renderLibrariesHtml(res, libraries) {
+  const groups = new Map()
+  for (const lib of libraries) {
+    const key = libraryTypeLabel(lib)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(lib)
+  }
+  const body = libraries.length
+    ? [...groups.keys()]
+        .sort()
+        .map((label) => listSection(label, groups.get(label), 'library', libraryRow))
+        .join('')
+    : emptyState('No SQL libraries.')
   res.setHeader('Content-Type', 'text/html')
   res.send(
     layout(`
-      <div class="container mx-auto p-4">
-        <div class="flex items-center space-x-4">
-          <a href="/" class="text-blue-500 hover:text-blue-700">Home</a>
-          <span class="text-gray-500">/</span>
-        </div>
-        <div class="mt-4 flex items-center space-x-4 border-b border-gray-200 pb-2">
-          <h1 class="flex-1 text-2xl font-bold">SQL libraries</h1>
-          <a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>
-        </div>
-        <table class="mt-4 table-auto border-collapse border border-gray-200">
-          <thead>
-            <tr>
-              <th class="bg-gray-100 border border-gray-200 p-2">Name</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">Title</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">URL</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">Type</th>
-              <th class="bg-gray-100 border border-gray-200 p-2">Run</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+      <div class="container mx-auto p-4 max-w-4xl">
+        ${breadcrumb('<span>SQL Libraries</span>')}
+        ${pageHeader(
+          'SQL Libraries',
+          `<a href="/Library/$sqlquery-run/form" class="btn">$sqlquery-run</a>
+           <a href="/Library/new" class="btn">New SQLView</a>`,
+        )}
+        ${body}
       </div>
     `),
   )
@@ -1407,6 +1437,150 @@ export async function getLibraryListEndpoint(req, res) {
     res.setHeader('Content-Type', 'application/fhir+json')
     res.json(wrapBundle(libraries))
   }
+}
+
+const DEP_ROWS = 6
+
+// Parse the Dependencies textarea: one `label = ref` per line (API compatibility).
+function parseDependencyLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const eq = line.indexOf('=')
+      if (eq === -1) return { label: sanitizeIdent(line.split('/').pop()), resource: line }
+      return { label: line.slice(0, eq).trim(), resource: line.slice(eq + 1).trim() }
+    })
+}
+
+// Dependencies from the form's dependency rows (view select + label input),
+// falling back to the legacy `dependsOn` textarea for API callers.
+function parseDependencyRows(body) {
+  const rows = []
+  for (let i = 0; i < DEP_ROWS; i++) {
+    const resource = (body[`dep_ref_${i}`] || '').trim()
+    if (!resource) continue
+    const label = (body[`dep_label_${i}`] || '').trim() || sanitizeIdent(resource.split('/').pop())
+    rows.push({ label, resource })
+  }
+  if (rows.length) return rows
+  return parseDependencyLines(body.dependsOn)
+}
+
+// Views a Library can depend on: all ViewDefinitions and SQLView Libraries.
+async function listDependableViews(config) {
+  const vds = await search(config, 'ViewDefinition', 1000)
+  const libs = (await search(config, 'Library', 1000)).filter((l) =>
+    (l.type?.coding || []).some((c) => c.code === 'sql-view'),
+  )
+  return [
+    ...vds.map((v) => ({
+      value: v.url || `ViewDefinition/${v.id}`,
+      label: `ViewDefinition · ${v.name || v.id}`,
+    })),
+    ...libs.map((l) => ({ value: l.url || `Library/${l.id}`, label: `SQLView · ${l.name || l.id}` })),
+  ]
+}
+
+async function renderLibraryNewForm(config, res, values = {}) {
+  const name = values.name || 'my_view'
+  const type = values.type || 'sql-view'
+  const sql = values.sql || 'SELECT * FROM my_dependency'
+  const typeOpts = ['sql-view', 'sql-query']
+    .map((t) => `<option value="${t}"${t === type ? ' selected' : ''}>${t}</option>`)
+    .join('')
+
+  const views = await listDependableViews(config)
+  const viewOpts = (selected) =>
+    `<option value="">— none —</option>` +
+    views
+      .map(
+        (v) =>
+          `<option value="${escapeHtml(v.value)}"${v.value === selected ? ' selected' : ''}>${escapeHtml(v.label)}</option>`,
+      )
+      .join('')
+
+  // Dependency rows: a view select + a label input. Selecting a view fills the
+  // label (the table name used in the SQL) when it is empty.
+  const fillLabel = `onchange="var l=this.closest('.dep-row').querySelector('input');if(!l.value){l.value=this.value.split('/').pop().replace(/[^A-Za-z0-9_]/g,'_')}"`
+  const depRows = Array.from({ length: DEP_ROWS }, (_, i) => {
+    const ref = values[`dep_ref_${i}`] || ''
+    const label = values[`dep_label_${i}`] || ''
+    return `
+      <div class="dep-row flex gap-2 mb-2">
+        <select name="dep_ref_${i}" class="${FORM_INPUT}" ${fillLabel}>${viewOpts(ref)}</select>
+        <input name="dep_label_${i}" value="${escapeHtml(label)}" class="${FORM_INPUT} max-w-[12rem]" placeholder="label (table name)" />
+      </div>`
+  }).join('')
+
+  const errorHtml = values.error
+    ? `<div class="p-3 border border-red-300 bg-red-50 rounded text-red-700 text-sm">${escapeHtml(values.error)}</div>`
+    : ''
+  res.setHeader('Content-Type', 'text/html')
+  res.send(
+    layout(`
+      <div class="container mx-auto p-4 max-w-2xl">
+        ${breadcrumb('<a href="/Library" class="text-blue-500 hover:text-blue-700">SQL Libraries</a>', '<span>New</span>')}
+        <h1 class="mt-4 text-2xl font-bold">New SQL Library</h1>
+        <form method="post" action="/Library" class="mt-4 space-y-4">
+          ${errorHtml}
+          <div class="flex gap-3">
+            <div class="flex-1">${formField('Name', '', `<input name="name" value="${escapeHtml(name)}" class="${FORM_INPUT}" placeholder="my_view" />`)}</div>
+            <div class="w-56">${formField('Type', '', `<select name="type" class="${FORM_INPUT}">${typeOpts}</select>`)}</div>
+          </div>
+          ${formField('Dependencies', 'pick a view and name it — each becomes a virtual table referenced by that label in the SQL', `<div>${depRows}</div>`)}
+          ${formField('SQL', 'references the dependency labels as tables', `<textarea name="sql" rows="8" class="${FORM_INPUT} font-mono text-xs">${escapeHtml(sql)}</textarea>`)}
+          <button type="submit" class="btn">Create</button>
+        </form>
+      </div>
+    `),
+  )
+}
+
+export async function getLibraryNewForm(req, res) {
+  await renderLibraryNewForm(req.config, res)
+}
+
+export async function postLibraryEndpoint(req, res) {
+  const body = req.body || {}
+  const name = (body.name || '').trim()
+  if (!name) {
+    const msg = 'Library.name is required'
+    if (isHtml(req)) return renderLibraryNewForm(req.config, res, { ...body, error: msg })
+    return res.status(400).json(operationOutcome('required', msg))
+  }
+  const type = body.type === 'sql-query' ? 'sql-query' : 'sql-view'
+  const sql = body.sql || ''
+  const relatedArtifact = parseDependencyRows(body).map((d) => ({
+    type: 'depends-on',
+    label: d.label,
+    resource: d.resource,
+  }))
+  const id = sanitizeIdent(name).toLowerCase()
+
+  const existing = await read(req.config, 'Library', id)
+  if (existing) {
+    const msg = `A Library with id '${id}' already exists; choose a different name.`
+    if (isHtml(req)) return renderLibraryNewForm(req.config, res, { ...body, error: msg })
+    return res.status(409).json(operationOutcome('duplicate', msg))
+  }
+
+  const library = {
+    resourceType: 'Library',
+    id,
+    url: `http://myig.org/Library/${id}`,
+    name,
+    status: 'active',
+    type: { coding: [{ code: type }] },
+    ...(relatedArtifact.length ? { relatedArtifact } : {}),
+    content: sqlContent(sql),
+  }
+  await saveResource(req.config, 'Library', library)
+
+  if (isHtml(req)) return res.redirect(303, `/Library/${id}/$sqlquery-run/form`)
+  res.setHeader('Location', `/Library/${id}`)
+  res.status(201).json(library)
 }
 
 export function mountRoutes(app) {
@@ -1428,7 +1602,9 @@ export function mountRoutes(app) {
   app.get('/\\$sqlquery-run/form/parameters', getSqlQueryRunFormParameters)
   app.get('/Library/\\$sqlquery-run/form/parameters', getSqlQueryRunFormParameters)
 
-  // Custom Library list page (overrides the generic FHIR resource list for
-  // /Library). Mounted before the FHIR catch-all in server.js.
+  // Custom Library list page + create form (override the generic FHIR resource
+  // routes for /Library). Mounted before the FHIR catch-all in server.js.
   app.get('/Library', getLibraryListEndpoint)
+  app.get('/Library/new', getLibraryNewForm)
+  app.post('/Library', postLibraryEndpoint)
 }

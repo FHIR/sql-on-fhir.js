@@ -1,35 +1,38 @@
 import { read } from './db.js'
 import { isHtml, renderNotFound, runOperation, renderOperationDefinition } from './utils.js'
 import { layout } from './ui.js'
+import { runFromDestination } from './materializedView.js'
 
 function renderError(req, res, error) {
+  const status = error?.status || 500
+  const message = error?.message || String(error)
   if (isHtml(req)) {
-    res.setHeader('Content-Type', 'text/html')
+    res.status(status).setHeader('Content-Type', 'text/html')
     res.send(
       layout(`
             <div class="container mx-auto p-4">
                 <h1>Evaluate ViewDefinition</h1>
-                <p>Error: ${error}</p>  
+                <p>Error: ${message}</p>
             </div>
         `),
     )
     res.end()
   } else if (req.headers['hx-target']) {
-    res.setHeader('Content-Type', 'text/html')
+    res.status(status).setHeader('Content-Type', 'text/html')
     res.send(
       layout(`
             <div class="container mx-auto p-4 bg-red-100 border border-red-500 rounded-md">
                 <h1>Error</h1>
-                <p class="text-red-500">${error}</p>  
+                <p class="text-red-500">${message}</p>
             </div>
         `),
     )
     res.end()
   } else {
-    res.status(500)
+    res.status(status)
     res.json({
       resourceType: 'OperationOutcome',
-      issue: [{ code: 'error', message: error.toString() }],
+      issue: [{ severity: 'error', code: error?.code || 'exception', diagnostics: message }],
     })
   }
 }
@@ -114,12 +117,28 @@ export async function getRunEndpoint(req, res) {
     return
   }
   try {
-    const result = await runOperation(req, resource, req.query)
     const format = req.query.format || 'json'
     const includeHeader = req.query.header !== 'false'
+    let result
+    if (req.query.destination) {
+      // Answer from the materialization on this destination, not by recomputing.
+      const hit = await runFromDestination(req.config, resource, req.query.destination)
+      if (!hit) {
+        return renderNotFound(
+          req,
+          res,
+          `No materialization of ViewDefinition/${id} on destination '${req.query.destination}'`,
+        )
+      }
+      result = hit.rows
+    } else {
+      result = await runOperation(req, resource, req.query)
+    }
     renderResult(req, res, result, format, includeHeader)
   } catch (error) {
-    console.error('$run-error', error)
+    // renderError content-negotiates and honours error.status (e.g. 400 for an
+    // unsupported destination), so HTML/htmx clients get a page, not raw JSON.
+    if (!error?.status || error.status >= 500) console.error('$run-error', error)
     renderError(req, res, error)
   }
 }
