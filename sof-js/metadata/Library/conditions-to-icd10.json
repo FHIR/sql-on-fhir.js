@@ -1,0 +1,46 @@
+{
+  "resourceType": "Library",
+  "id": "conditions-to-icd10",
+  "url": "http://myig.org/Library/conditions-to-icd10",
+  "name": "ConditionsToIcd10",
+  "title": "Conditions translated to ICD-10",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "Translates each condition's SNOMED CT code to ICD-10 by left-joining the conditions view to a concept map dependency, exposed under the sct_to_icd10 label as a relation with one row per mapping. The LEFT JOIN keeps conditions the map does not translate, and the relationship predicate in the ON clause excludes not-related-to mappings while admitting the null relationship of a noMap row. Author: John Grimes.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/conditions",
+      "label": "conditions",
+      "display": "Condition view with patient_id, system, version and code columns"
+    },
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ConceptMap/sct-to-icd10|1.0.0",
+      "label": "sct_to_icd10",
+      "display": "SNOMED CT to ICD-10 concept map, exposed as a relation"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "data": "U0VMRUNUIGNvbmRpdGlvbnMucGF0aWVudF9pZCwKICAgICAgIGNvbmRpdGlvbnMuY29kZSwKICAgICAgIHNjdF90b19pY2QxMC50YXJnZXRfY29kZSwKICAgICAgIHNjdF90b19pY2QxMC5yZWxhdGlvbnNoaXAKRlJPTSBjb25kaXRpb25zCkxFRlQgSk9JTiBzY3RfdG9faWNkMTAKICBPTiBzY3RfdG9faWNkMTAuc291cmNlX3N5c3RlbSA9IGNvbmRpdGlvbnMuc3lzdGVtCiBBTkQgc2N0X3RvX2ljZDEwLnNvdXJjZV9jb2RlID0gY29uZGl0aW9ucy5jb2RlCiBBTkQgKHNjdF90b19pY2QxMC5yZWxhdGlvbnNoaXAgSVMgTlVMTAogICAgICBPUiBzY3RfdG9faWNkMTAucmVsYXRpb25zaGlwIDw+ICdub3QtcmVsYXRlZC10bycpCk9SREVSIEJZIGNvbmRpdGlvbnMucGF0aWVudF9pZCwgY29uZGl0aW9ucy5jb2Rl",
+      "extension": [
+        {
+          "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text",
+          "valueString": "SELECT conditions.patient_id,\n       conditions.code,\n       sct_to_icd10.target_code,\n       sct_to_icd10.relationship\nFROM conditions\nLEFT JOIN sct_to_icd10\n  ON sct_to_icd10.source_system = conditions.system\n AND sct_to_icd10.source_code = conditions.code\n AND (sct_to_icd10.relationship IS NULL\n      OR sct_to_icd10.relationship <> 'not-related-to')\nORDER BY conditions.patient_id, conditions.code"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "profile": ["http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLQuery"]
+  }
+}

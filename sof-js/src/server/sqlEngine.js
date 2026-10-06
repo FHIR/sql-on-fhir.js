@@ -4,15 +4,19 @@
  * Every `relatedArtifact[type=depends-on]` dependency is materialised into a
  * table in an in-memory SQLite database named after the artifact's `label`:
  * ViewDefinitions through the `evaluate()` engine, SQLViews by recursive
- * execution, ValueSets as a relation of their members. The Library's SQL then
- * runs against those tables with named parameter bindings.
+ * execution, ValueSets as a relation of their members and ConceptMaps as a
+ * relation of their mappings. The Library's SQL then runs against those tables
+ * with named parameter bindings.
  *
  * Author: John Grimes
  */
 
 import sqlite3 from 'sqlite3'
 import { fail, operationError, issue, SQL_TEXT_EXTENSION, viewColumns } from './common.js'
-import { VALUE_SET_COLUMNS } from './terminology.js'
+import { CONCEPT_MAP_COLUMNS, VALUE_SET_COLUMNS } from './terminology.js'
+
+// Columns of the relation each kind of terminology dependency is exposed as.
+const TERMINOLOGY_COLUMNS = { ValueSet: VALUE_SET_COLUMNS, ConceptMap: CONCEPT_MAP_COLUMNS }
 
 // Map a FHIR Library.parameter.type to the `value[x]` field carrying it.
 const PARAMETER_VALUE_FIELDS = {
@@ -225,8 +229,8 @@ function prepareSql(db, sql, expression) {
 
 /**
  * Materialise every dependency of a Library into tables on `db`.
- * Returns the declared FHIR column types of ViewDefinition and ValueSet
- * dependencies, keyed by column name, for typing the `fhir` format.
+ * Returns the declared FHIR column types of ViewDefinition, ValueSet and
+ * ConceptMap dependencies, keyed by column name, for typing the `fhir` format.
  */
 async function materialiseDependencies(library, db, ctx, stack) {
   const columnTypes = {}
@@ -256,12 +260,13 @@ async function materialiseDependencies(library, db, ctx, stack) {
         columns.map((c) => c.name),
         await ctx.evaluateView(view),
       )
-    } else if (artifact.kind === 'ValueSet') {
-      await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(VALUE_SET_COLUMNS)})`)
+    } else if (artifact.kind in TERMINOLOGY_COLUMNS) {
+      const columns = TERMINOLOGY_COLUMNS[artifact.kind]
+      await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(columns)})`)
       await insertRows(
         db,
         dep.label,
-        VALUE_SET_COLUMNS.map((c) => c.name),
+        columns.map((c) => c.name),
         artifact.resource.rows,
       )
     } else {
@@ -299,8 +304,8 @@ async function runView(library, ctx, stack) {
  * @param {object} options.library - The Library to execute.
  * @param {object|null} options.parametersResource - Parameter values (ignored for a SQLView, which declares none).
  * @param {(canonical: string) => {kind: string, resource: object}|null} options.resolveDependency - Resolves a
- *   dependency canonical, as written in `relatedArtifact.resource`, to a ViewDefinition, SQLView or ValueSet
- *   membership record.
+ *   dependency canonical, as written in `relatedArtifact.resource`, to a ViewDefinition, SQLView, or the
+ *   resolution of a ValueSet or ConceptMap (see `resolveTerminology`).
  * @param {(view: object) => Promise<object[]>} options.evaluateView - Produces the rows of a ViewDefinition dependency.
  * @param {string} [options.expression='subject'] - Expression used in issues raised by execution.
  * @param {boolean} [options.prepareOnly=false] - Prepare the statement instead of executing it, so that

@@ -417,7 +417,7 @@ async function renderRunForm(req) {
           )}
           ${section(
             'Supporting artifacts',
-            `${field('context', multiplyRow(jsonTextarea('context', { rows: 4, placeholder: 'ViewDefinition or Library JSON this subject depends on' })))}
+            `${field('context', multiplyRow(jsonTextarea('context', { rows: 4, placeholder: 'ViewDefinition, SQLView Library, ValueSet or ConceptMap JSON this subject depends on' })))}
             ${field('resource', multiplyRow(jsonTextarea('resource', { rows: 4, placeholder: 'FHIR resource or Bundle to evaluate instead of the stored data (ViewDefinition subjects only)' })))}`,
           )}
           ${section(
@@ -563,7 +563,8 @@ async function renderExportForm(req) {
               multiplyRow(
                 jsonTextarea('context', {
                   rows: 4,
-                  placeholder: 'ViewDefinition or Library JSON the subjects depend on',
+                  placeholder:
+                    'ViewDefinition, SQLView Library, ValueSet or ConceptMap JSON the subjects depend on',
                 }),
               ),
             ),

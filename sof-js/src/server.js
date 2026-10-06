@@ -78,7 +78,7 @@ export async function startServer(config) {
   })
   app.use(express.urlencoded({ extended: true }))
   config.db = getDb()
-  // Terminology server used to expand ValueSet dependencies of SQL queries.
+  // Terminology server used to resolve ValueSet and ConceptMap dependencies of SQL queries.
   // Explicit config wins over the environment, which wins over the default.
   config.terminologyServerUrl ??= process.env.TERMINOLOGY_SERVER_URL || DEFAULT_TERMINOLOGY_SERVER_URL
   config.terminologyMaxMembers ??=

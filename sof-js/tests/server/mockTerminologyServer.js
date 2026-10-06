@@ -1,12 +1,14 @@
 /**
  * Minimal FHIR terminology server double for tests. Implements
  * `GET ValueSet/$expand?url=…` and `POST ValueSet/$expand` with paging over a
- * fixed set of value sets, and records every request it receives.
+ * fixed set of value sets, `GET ConceptMap?url=…[&version=…]` over a fixed set
+ * of concept maps, and records every request it receives.
  *
  * Author: John Grimes
  */
 
 import http from 'http'
+import { SCT, ICD10 } from './conceptMapFixtures.js'
 
 const GENDER_SYSTEM = 'http://hl7.org/fhir/administrative-gender'
 
@@ -14,15 +16,15 @@ const GENDER_SYSTEM = 'http://hl7.org/fhir/administrative-gender'
 // holds; `null` is the version served for an unpinned request.
 const valueSets = {
   'http://hl7.org/fhir/ValueSet/administrative-gender': {
-    latest: '4.0.1',
+    latest: '5.0.0',
     versions: {
-      '4.0.1': {
-        parameter: [{ name: 'version', valueUri: `${GENDER_SYSTEM}|4.0.1` }],
+      '5.0.0': {
+        parameter: [{ name: 'version', valueUri: `${GENDER_SYSTEM}|5.0.0` }],
         contains: [
-          { system: GENDER_SYSTEM, version: '4.0.1', code: 'male', display: 'Male' },
-          { system: GENDER_SYSTEM, version: '4.0.1', code: 'female', display: 'Female' },
-          { system: GENDER_SYSTEM, version: '4.0.1', code: 'other', display: 'Other' },
-          { system: GENDER_SYSTEM, version: '4.0.1', code: 'unknown', display: 'Unknown' },
+          { system: GENDER_SYSTEM, version: '5.0.0', code: 'male', display: 'Male' },
+          { system: GENDER_SYSTEM, version: '5.0.0', code: 'female', display: 'Female' },
+          { system: GENDER_SYSTEM, version: '5.0.0', code: 'other', display: 'Other' },
+          { system: GENDER_SYSTEM, version: '5.0.0', code: 'unknown', display: 'Unknown' },
         ],
       },
       // An older version with fewer members, so a pinned request is
@@ -82,6 +84,36 @@ const valueSets = {
   },
 }
 
+// A ConceptMap with one group mapping SNOMED CT to ICD-10.
+function conceptMap(url, version, target) {
+  return {
+    resourceType: 'ConceptMap',
+    url,
+    version,
+    status: 'active',
+    group: [
+      {
+        source: SCT,
+        target: `${ICD10}|2019`,
+        element: [{ code: '59621000', display: 'Hypertension', target: [target] }],
+      },
+    ],
+  }
+}
+
+const EQUIVALENT = { code: 'I10', display: 'Essential (primary) hypertension', relationship: 'equivalent' }
+
+// Concept maps the mock serves from `GET ConceptMap`.
+const conceptMaps = [
+  conceptMap('http://example.org/ConceptMap/remote', '1', EQUIVALENT),
+  // Two versions of one map, so an unpinned search matches both.
+  conceptMap('http://example.org/ConceptMap/two-versions', '1', EQUIVALENT),
+  conceptMap('http://example.org/ConceptMap/two-versions', '2', EQUIVALENT),
+  // An R4-shaped map, as an R4 server returns: `equivalence` rather than
+  // `relationship`.
+  conceptMap('http://example.org/ConceptMap/r4-shaped', '1', { code: 'I10', equivalence: 'equivalent' }),
+]
+
 function operationOutcome(code, diagnostics) {
   return JSON.stringify({
     resourceType: 'OperationOutcome',
@@ -119,6 +151,29 @@ export async function startMockTerminologyServer({ pageSize = 2 } = {}) {
       body,
     }
     requests.push(record)
+
+    // ConceptMap search by url, and by version where given. A url the mock
+    // has been told to fail on simulates a server-side fault.
+    if (url.pathname === '/ConceptMap' && req.method === 'GET') {
+      const cmUrl = url.searchParams.get('url')
+      const cmVersion = url.searchParams.get('version')
+      if (cmUrl === 'http://example.org/ConceptMap/broken') {
+        res.writeHead(500, { 'Content-Type': 'application/fhir+json' })
+        res.end(operationOutcome('exception', 'Simulated concept map search failure'))
+        return
+      }
+      const matches = conceptMaps.filter((cm) => cm.url === cmUrl && (!cmVersion || cm.version === cmVersion))
+      res.writeHead(200, { 'Content-Type': 'application/fhir+json' })
+      res.end(
+        JSON.stringify({
+          resourceType: 'Bundle',
+          type: 'searchset',
+          total: matches.length,
+          entry: matches.map((resource) => ({ resource, search: { mode: 'match' } })),
+        }),
+      )
+      return
+    }
 
     if (url.pathname !== '/ValueSet/$expand') {
       res.writeHead(404, { 'Content-Type': 'application/fhir+json' })

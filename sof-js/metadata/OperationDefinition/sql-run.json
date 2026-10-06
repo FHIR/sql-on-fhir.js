@@ -70,9 +70,11 @@
       "type": "CanonicalResource",
       "targetProfile": [
         "http://hl7.org/fhir/StructureDefinition/ViewDefinition",
-        "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLView"
+        "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLView",
+        "http://hl7.org/fhir/StructureDefinition/ValueSet",
+        "http://hl7.org/fhir/StructureDefinition/ConceptMap"
       ],
-      "documentation": "Supporting artifacts the server cannot itself resolve, supplied inline and matched by canonical URL against the dependencies in the subject's transitive relatedArtifact graph. Accepts inline resources only; there is no context by canonical URL, because a URL is exactly what the server has already failed to resolve. Carries a resource, so it requires POST. See Common Operation Behavior (operations-common.html#context)."
+      "documentation": "Supporting artifacts the server cannot itself resolve, supplied inline and matched by canonical URL against the dependencies in the subject's transitive relatedArtifact graph: a ViewDefinition, a SQLView, or a ValueSet or ConceptMap whose content the SQL reads as a relation (see Terminology in SQL, terminology-in-sql.html). Accepts inline resources only; there is no context by canonical URL, because a URL is exactly what the server has already failed to resolve. Carries a resource, so it requires POST. See Common Operation Behavior (operations-common.html#context)."
     },
     {
       "name": "resource",

@@ -15,7 +15,7 @@
  */
 
 import { search } from './db.js'
-import { findStoredValueSet } from './terminology.js'
+import { findStored } from './terminology.js'
 
 // ---------------------------------------------------------------------------
 // Issue helpers
@@ -211,15 +211,16 @@ export function validateSqlLibraryShape(library) {
 
 /**
  * Resolve a `relatedArtifact.resource` canonical to a ViewDefinition (first),
- * a Library (second) or a stored ValueSet (third). Returns `null` when none
- * is found.
+ * a Library (second), or a stored ValueSet or ConceptMap (third). Returns
+ * `null` when none is found.
  *
  * Uses `config.search` when present (for unit-test stubs that inject their
  * own search function) and falls back to the imported db `search` otherwise.
  *
  * @param {object} config - Server config.  May supply a `search` override.
  * @param {string} ref - The canonical URL or reference string to resolve.
- * @returns {Promise<{kind: 'ViewDefinition'|'Library'|'ValueSet', resource: object}|null>} resolved resource or null.
+ * @returns {Promise<{kind: 'ViewDefinition'|'Library'|'ValueSet'|'ConceptMap', resource: object}|null>} resolved
+ *   resource or null.
  */
 async function resolveDependencyTarget(config, ref) {
   // Allow the config to override the search function, which is useful for
@@ -235,11 +236,13 @@ async function resolveDependencyTarget(config, ref) {
   const lib = libs.find((l) => l.url === ref || l.id === segment)
   if (lib) return { kind: 'Library', resource: lib }
 
-  // A stored ValueSet matches on url, and on version where the canonical pins
-  // one. Several stored versions of an unpinned url is a run-time error, not a
-  // validation concern, so it is reported here as resolved.
-  const vs = await findStoredValueSet(config, ref).catch(() => null)
-  if (vs) return { kind: 'ValueSet', resource: vs }
+  // A stored ValueSet or ConceptMap matches on url, and on version where the
+  // canonical pins one. Several stored versions of an unpinned url fails at
+  // run time; here it is simply left unresolved.
+  for (const kind of ['ValueSet', 'ConceptMap']) {
+    const resource = await findStored(config, kind, ref).catch(() => null)
+    if (resource) return { kind, resource }
+  }
 
   return null
 }
@@ -276,12 +279,12 @@ export async function validateSqlLibrary(library, config) {
     if (!resolved) {
       // An unresolvable canonical is advisory - warn rather than error so
       // existing queries with missing dependencies are not rejected. A
-      // ValueSet the server does not hold may still resolve at run time via
-      // the terminology server.
+      // ValueSet or ConceptMap the server does not hold may still resolve at
+      // run time via the terminology server.
       issues.push(
         warningIssue(
           'not-found',
-          `Dependency '${ref}' could not be resolved to a stored ViewDefinition, Library or ValueSet; a ValueSet is expanded by the terminology server at run time.`,
+          `Dependency '${ref}' could not be resolved to a stored ViewDefinition, Library, ValueSet or ConceptMap; a ValueSet or ConceptMap may still be resolved by the terminology server at run time.`,
           expr,
         ),
       )

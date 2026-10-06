@@ -17,7 +17,7 @@
   "relatedArtifact": [
     {
       "type": "depends-on",
-      "resource": "http://hl7.org/fhir/ValueSet/administrative-gender|4.0.1",
+      "resource": "http://hl7.org/fhir/ValueSet/administrative-gender|5.0.0",
       "label": "gender_codes",
       "display": "Administrative gender value set, exposed as a relation"
     }

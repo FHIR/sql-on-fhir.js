@@ -221,43 +221,130 @@ describe('resolveGraph', () => {
     expect(graph.size).toBe(0)
   })
 
-  test('a dependency that is neither stored nor a context entry is resolved as a ValueSet', async () => {
+  test('a dependency that is neither stored nor a context entry is resolved as terminology', async () => {
     const VS = 'https://example.org/ValueSet/vs|1'
     const q = sqlQueryLibrary('SELECT 1', [{ resource: VS, label: 'vs' }])
-    const record = { canonical: VS, rows: [], parameters: [] }
+    const resolution = { kind: 'ValueSet', resource: { canonical: VS, rows: [], parameters: [] } }
     const seen = []
-    const lookupValueSet = async (canonical) => {
-      seen.push(canonical)
-      return record
+    const lookupTerminology = async (canonical, supplied) => {
+      seen.push([canonical, supplied])
+      return resolution
     }
-    const graph = await resolveGraph({ subjects: [q], context: [], lookup, lookupValueSet })
-    // The canonical is passed as written, version pin included.
-    expect(seen).toEqual([VS])
-    expect(graph.get(VS)).toEqual({ kind: 'ValueSet', resource: record })
+    const graph = await resolveGraph({ subjects: [q], context: [], lookup, lookupTerminology })
+    // The canonical is passed as written, version pin included, with nothing supplied.
+    expect(seen).toEqual([[VS, undefined]])
+    expect(graph.get(VS)).toBe(resolution)
   })
 
-  test('a value set unknown to the terminology server is 404 naming the canonical', async () => {
+  test('terminology unknown to the server is 404 naming the canonical', async () => {
     const q = sqlQueryLibrary('SELECT 1', [{ resource: W, label: 'w' }])
-    const lookupValueSet = async () => {
+    const lookupTerminology = async () => {
       const err = new Error('nobody has heard of it')
       err.status = 404
       throw err
     }
-    await expect(resolveGraph({ subjects: [q], context: [], lookup, lookupValueSet })).rejects.toMatchObject({
+    await expect(
+      resolveGraph({ subjects: [q], context: [], lookup, lookupTerminology }),
+    ).rejects.toMatchObject({
       status: 404,
       issues: [expect.objectContaining({ code: 'not-found', diagnostics: expect.stringContaining(W) })],
     })
   })
 
-  test('a value set whose membership cannot be determined fails the graph with 422', async () => {
+  test('terminology whose content cannot be determined fails the graph with 422', async () => {
     const q = sqlQueryLibrary('SELECT 1', [{ resource: W, label: 'w' }])
-    const lookupValueSet = async () => {
+    const lookupTerminology = async () => {
       const err = new Error('server on fire')
       err.status = 422
       throw err
     }
-    await expect(resolveGraph({ subjects: [q], context: [], lookup, lookupValueSet })).rejects.toMatchObject({
+    await expect(
+      resolveGraph({ subjects: [q], context: [], lookup, lookupTerminology }),
+    ).rejects.toMatchObject({
       status: 422,
+    })
+  })
+
+  test('a supplied ValueSet or ConceptMap is handed to the terminology resolver with its dependency', async () => {
+    const VS = 'https://example.org/ValueSet/vs'
+    const CM = 'https://example.org/ConceptMap/cm'
+    const vs = { resourceType: 'ValueSet', url: VS, version: '1', expansion: { contains: [] } }
+    const cm = { resourceType: 'ConceptMap', url: CM, group: [] }
+    const q = sqlQueryLibrary('SELECT 1', [
+      { resource: `${VS}|1`, label: 'vs' },
+      { resource: CM, label: 'cm' },
+    ])
+    const seen = []
+    const lookupTerminology = async (canonical, supplied) => {
+      seen.push([canonical, supplied])
+      return { kind: supplied.resourceType, resource: { canonical, rows: [], parameters: [] } }
+    }
+    const graph = await resolveGraph({ subjects: [q], context: [vs, cm], lookup, lookupTerminology })
+    expect(seen).toEqual([
+      [`${VS}|1`, vs],
+      [CM, cm],
+    ])
+    expect(graph.get(`${VS}|1`).kind).toBe('ValueSet')
+    expect(graph.get(CM).kind).toBe('ConceptMap')
+  })
+
+  test('a supplied ValueSet takes precedence over a ViewDefinition the server holds at the same url', async () => {
+    // Step 2.1 precedes step 2.2: the supplied entry wins regardless of kind.
+    const vs = { resourceType: 'ValueSet', url: V, expansion: { contains: [] } }
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: V, label: 'v' }])
+    const resolution = { kind: 'ValueSet', resource: { canonical: V, rows: [], parameters: [] } }
+    const seen = []
+    const lookupTerminology = async (canonical, supplied) => {
+      seen.push(supplied)
+      return resolution
+    }
+    const graph = await resolveGraph({ subjects: [q], context: [vs], lookup, lookupTerminology })
+    expect(seen).toEqual([vs])
+    expect(graph.get(V)).toBe(resolution)
+  })
+
+  test('a supplied ConceptMap matching no dependency is 400 naming context', async () => {
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: V, label: 'v' }])
+    const cm = { resourceType: 'ConceptMap', url: 'https://example.org/ConceptMap/typo', group: [] }
+    const lookupTerminology = async () => {
+      throw new Error('must not be called for an unmatched entry')
+    }
+    await expect(
+      resolveGraph({ subjects: [q], context: [cm], lookup, lookupTerminology }),
+    ).rejects.toMatchObject({
+      status: 400,
+      issues: [expect.objectContaining({ code: 'invalid', expression: ['context'] })],
+    })
+  })
+
+  test('a supplied ValueSet whose version differs from the pinned dependency is not used', async () => {
+    const VS = 'https://example.org/ValueSet/vs'
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: `${VS}|2`, label: 'vs' }])
+    const vs = { resourceType: 'ValueSet', url: VS, version: '1', expansion: { contains: [] } }
+    const seen = []
+    const lookupTerminology = async (canonical, supplied) => {
+      seen.push(supplied)
+      return { kind: 'ValueSet', resource: { canonical, rows: [], parameters: [] } }
+    }
+    // The dependency resolves on the server instead, and the unused entry is
+    // then rejected as unmatched.
+    await expect(
+      resolveGraph({ subjects: [q], context: [vs], lookup, lookupTerminology }),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(seen).toEqual([undefined])
+  })
+
+  test('a context entry of any other resource type is 400 naming context', async () => {
+    const q = sqlQueryLibrary('SELECT 1', [{ resource: V, label: 'v' }])
+    const cs = { resourceType: 'CodeSystem', url: V }
+    await expect(resolveGraph({ subjects: [q], context: [cs], lookup })).rejects.toMatchObject({
+      status: 400,
+      issues: [
+        expect.objectContaining({
+          expression: ['context'],
+          diagnostics: expect.stringContaining('ViewDefinition, SQLView, ValueSet or ConceptMap'),
+        }),
+      ],
     })
   })
 })
