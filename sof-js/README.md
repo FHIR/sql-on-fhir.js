@@ -195,13 +195,14 @@ resolves but whose content cannot be determined is rejected with
 expansion that is a page or lists fewer entries than its `total`, or more
 members than the configured cap; for a concept map, a group without `source`,
 an element or target carrying `valueSet`, a target carrying `dependsOn` or
-`product`, or an R4-shaped target. The public `tx.fhir.org` refuses to expand
-value sets of more than 3000 codes (`too-costly`), which surfaces as this
-`422`; point `TERMINOLOGY_SERVER_URL` at a server without that limit for
-larger value sets. Each resolution writes one log line recording the canonical
-URL, the resolved version and the source, plus for a value set the expansion
-identifier and timestamp, the code system versions reported by the expansion
-and the member count, and for a concept map the mapping count.
+`product`, an element or target without a `code`, or a target without a
+`relationship` (which includes an R4-shaped target). The public `tx.fhir.org`
+refuses to expand value sets of more than 3000 codes (`too-costly`), which
+surfaces as this `422`; point `TERMINOLOGY_SERVER_URL` at a server without that
+limit for larger value sets. Each resolution writes one log line recording the
+canonical URL, the resolved version and the source, plus for a value set the
+expansion identifier and timestamp, the code system versions reported by the
+expansion and the member count, and for a concept map the mapping count.
 
 Configuration (environment variables):
 
