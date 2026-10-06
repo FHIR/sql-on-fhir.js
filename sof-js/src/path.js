@@ -15,6 +15,11 @@ function getResourceKey(nodes) {
 function getReferenceKey(nodes, opts) {
   let resource = opts?.name
   return nodes.flatMap((node) => {
+    // A Reference without a literal reference cannot be resolved, so it
+    // contributes no key.
+    if (typeof node?.reference !== 'string') {
+      return []
+    }
     const parts = node.reference.replaceAll('//', '').split('/_history')[0].split('/')
     const type = parts[parts.length - 2]
     const key = parts[parts.length - 1]

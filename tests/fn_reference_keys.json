@@ -13,6 +13,20 @@
             "reference": "Patient/p1"
           }
         }
+      ],
+      "generalPractitioner": [
+        {
+          "reference": "Practitioner/pr1"
+        },
+        {
+          "reference": "Organization/o1"
+        },
+        {
+          "display": "Unknown practitioner"
+        },
+        {
+          "reference": "Practitioner/pr2"
+        }
       ]
     },
     {
@@ -106,6 +120,155 @@
           "key_equal_ref": null
         }
       ]
+    },
+    {
+      "title": "getReferenceKey on a collection returns a key for each reference",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [
+              {
+                "path": "id",
+                "name": "id",
+                "type": "id"
+              },
+              {
+                "path": "generalPractitioner.getReferenceKey()[2].exists()",
+                "name": "has_third_key",
+                "type": "boolean"
+              },
+              {
+                "path": "generalPractitioner.getReferenceKey()[3].exists()",
+                "name": "has_fourth_key",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "p1",
+          "has_third_key": true,
+          "has_fourth_key": false
+        },
+        {
+          "id": "p2",
+          "has_third_key": false,
+          "has_fourth_key": false
+        }
+      ]
+    },
+    {
+      "title": "getReferenceKey with type specifier on a collection filters each reference",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [
+              {
+                "path": "id",
+                "name": "id",
+                "type": "id"
+              },
+              {
+                "path": "generalPractitioner.getReferenceKey(Practitioner)[1].exists()",
+                "name": "has_second_key",
+                "type": "boolean"
+              },
+              {
+                "path": "generalPractitioner.getReferenceKey(Practitioner)[2].exists()",
+                "name": "has_third_key",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "p1",
+          "has_second_key": true,
+          "has_third_key": false
+        },
+        {
+          "id": "p2",
+          "has_second_key": false,
+          "has_third_key": false
+        }
+      ]
+    },
+    {
+      "title": "getReferenceKey within forEachOrNull returns one key per reference",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [
+              {
+                "path": "id",
+                "name": "id",
+                "type": "id"
+              }
+            ]
+          },
+          {
+            "forEachOrNull": "generalPractitioner",
+            "column": [
+              {
+                "path": "getReferenceKey(Practitioner) = getReferenceKey()",
+                "name": "practitioner_key_matches",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "p1",
+          "practitioner_key_matches": true
+        },
+        {
+          "id": "p1",
+          "practitioner_key_matches": null
+        },
+        {
+          "id": "p1",
+          "practitioner_key_matches": null
+        },
+        {
+          "id": "p1",
+          "practitioner_key_matches": true
+        },
+        {
+          "id": "p2",
+          "practitioner_key_matches": null
+        }
+      ]
+    },
+    {
+      "title": "getReferenceKey on multiple references fails in a single-valued column",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Patient",
+        "select": [
+          {
+            "column": [
+              {
+                "path": "generalPractitioner.getReferenceKey(Practitioner)",
+                "name": "practitioner_key",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "expectError": true
     }
   ]
 }
