@@ -12,6 +12,7 @@ import { evaluate } from '../index.js'
 import { validateSqlLibraryShape } from './sqlLibraryValidation.js'
 import { inPatientCompartment } from './compartment.js'
 import { runLibrary, valueFieldForFhirType } from './sqlEngine.js'
+import { logTerminologyResolution } from './terminology.js'
 import { issue, operationError, fail, combineErrors, parseCanonical, viewColumns } from './common.js'
 
 export {
@@ -416,30 +417,55 @@ function dependenciesOf(artifact) {
   if (artifact.kind === 'ViewDefinition') return []
   return (artifact.resource.relatedArtifact || [])
     .filter((a) => a.type === 'depends-on' && typeof a.resource === 'string')
-    .map((a) => ({ ...parseCanonical(a.resource), label: a.label }))
+    .map((a) => ({ canonical: a.resource, ...parseCanonical(a.resource), label: a.label }))
+}
+
+// The kinds of artifact a dependency, and so a context entry, may resolve to.
+const DEPENDENCY_KINDS = ['ViewDefinition', 'SQLView', 'ValueSet', 'ConceptMap']
+
+// Classify a context entry: a subject kind, or a terminology artifact.
+function contextKind(entry) {
+  const kind = artifactKind(entry)
+  if (kind) return kind
+  if (entry?.resourceType === 'ValueSet' || entry?.resourceType === 'ConceptMap') return entry.resourceType
+  return null
 }
 
 /**
  * Resolve the transitive dependency graph of every subject, matching supplied
  * `context` entries by canonical URL, as specified in "Matching supplied
- * artifacts to dependencies".
+ * artifacts to dependencies". A supplied ValueSet or ConceptMap, and a
+ * dependency that is neither a context entry nor a stored ViewDefinition or
+ * SQLView, is resolved by `lookupTerminology`, so that its content is settled -
+ * and any failure reported - before any SQL runs.
  *
  * @param {object} options - Inputs.
  * @param {object[]} options.subjects - Resolved subjects, or bare resources (classified with `artifactKind`).
- * @param {object[]} options.context - Inline ViewDefinition and SQLView resources.
+ * @param {object[]} options.context - Inline ViewDefinition, SQLView, ValueSet and ConceptMap resources.
  * @param {(url: string, version: string|null) => Promise<{kind: string, resource: object}|null>} options.lookup - Server-side canonical resolver.
- * @returns {Promise<Map<string, {kind: string, resource: object}>>} canonical URL to resolved artifact.
- * @throws {Error} 400 for an unusable or unmatched context entry, 404 for an unresolvable dependency.
+ * @param {(canonical: string, supplied?: object) => Promise<{kind: string, resource: object}>} [options.lookupTerminology] -
+ *   Resolves a ValueSet or ConceptMap dependency (see `resolveTerminology`), given the matched context entry where
+ *   there is one, throwing 404 when unknown and 422 when its content cannot be determined. Required when `context`
+ *   carries a ValueSet or ConceptMap; without it an unresolved dependency is simply missing.
+ * @returns {Promise<Map<string, {kind: string, resource: object}>>} canonical (as written in the dependency, so a
+ *   pinned `url|version` is distinct from the bare url) to resolved artifact.
+ * @throws {Error} 400 for an unusable or unmatched context entry, 404 for an unresolvable dependency,
+ *   422 for a value set or concept map whose content cannot be determined.
  */
-export async function resolveGraph({ subjects, context, lookup }) {
+export async function resolveGraph({ subjects, context, lookup, lookupTerminology = null }) {
   const contextByUrl = new Map()
   for (const entry of context) {
-    const kind = artifactKind(entry)
+    const kind = contextKind(entry)
     if (!entry?.url) {
       fail(400, 'invalid', 'A context entry has no url and cannot be bound to any dependency', 'context')
     }
-    if (kind !== 'ViewDefinition' && kind !== 'SQLView') {
-      fail(400, 'invalid', `Context entry '${entry.url}' is not a ViewDefinition or SQLView`, 'context')
+    if (!DEPENDENCY_KINDS.includes(kind)) {
+      fail(
+        400,
+        'invalid',
+        `Context entry '${entry.url}' is not a ViewDefinition, SQLView, ValueSet or ConceptMap`,
+        'context',
+      )
     }
     if (contextByUrl.has(entry.url)) {
       fail(400, 'invalid', `Two context entries share the url '${entry.url}'`, 'context')
@@ -458,33 +484,52 @@ export async function resolveGraph({ subjects, context, lookup }) {
   const missing = []
   while (worklist.length > 0) {
     const dep = worklist.shift()
-    if (resolved.has(dep.url)) continue
+    if (resolved.has(dep.canonical)) continue
     let artifact = null
     const supplied = contextByUrl.get(dep.url)
     if (supplied && (dep.version === null || supplied.resource.version === dep.version)) {
-      artifact = supplied
       used.add(dep.url)
+      if (supplied.kind === 'ValueSet' || supplied.kind === 'ConceptMap') {
+        artifact = await lookupTerminology(dep.canonical, supplied.resource)
+        logTerminologyResolution(dep.label, artifact)
+      } else {
+        artifact = supplied
+      }
     } else {
       artifact = await lookup(dep.url, dep.version)
     }
+    if (!artifact && lookupTerminology) {
+      try {
+        artifact = await lookupTerminology(dep.canonical)
+        logTerminologyResolution(dep.label, artifact)
+      } catch (err) {
+        if (err.status !== 404) throw err
+        missing.push(
+          issue(
+            'not-found',
+            `Dependency '${dep.canonical}' was neither supplied as a context entry nor resolvable by the server as a ViewDefinition, SQLView, ValueSet or ConceptMap: ${err.message}`,
+          ),
+        )
+        continue
+      }
+    }
     if (!artifact) {
-      const pinned = dep.version ? `${dep.url}|${dep.version}` : dep.url
       missing.push(
         issue(
           'not-found',
-          `Dependency '${pinned}' was neither supplied as a context entry nor resolvable by the server`,
+          `Dependency '${dep.canonical}' was neither supplied as a context entry nor resolvable by the server`,
         ),
       )
       continue
     }
-    if (artifact.kind !== 'ViewDefinition' && artifact.kind !== 'SQLView') {
+    if (!DEPENDENCY_KINDS.includes(artifact.kind)) {
       fail(
         422,
         'invalid',
-        `Dependency '${dep.url}' resolved to a ${artifact.kind || 'resource'} rather than a ViewDefinition or SQLView`,
+        `Dependency '${dep.url}' resolved to a ${artifact.kind || 'resource'} rather than a ViewDefinition, SQLView, ValueSet or ConceptMap`,
       )
     }
-    resolved.set(dep.url, artifact)
+    resolved.set(dep.canonical, artifact)
     if (artifact.kind === 'SQLView') worklist.push(...dependenciesOf(artifact))
   }
 
@@ -658,7 +703,7 @@ export async function executeSubject({
   return runLibrary({
     library: subject.resource,
     parametersResource,
-    resolveDependency: (url) => graph.get(url) || null,
+    resolveDependency: (canonical) => graph.get(canonical) || null,
     evaluateView: async (view) => evaluateView(view, await dataSource(view.resource), expression),
     expression,
     prepareOnly,

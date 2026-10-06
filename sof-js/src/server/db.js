@@ -17,6 +17,7 @@ export const CANONICAL_TYPES = [
   'OperationDefinition',
   'CodeSystem',
   'ValueSet',
+  'ConceptMap',
   'Library',
   'Group',
 ]

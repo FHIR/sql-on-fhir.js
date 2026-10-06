@@ -1,0 +1,79 @@
+{
+  "resourceType": "ConceptMap",
+  "id": "sct-to-icd10",
+  "url": "http://myig.org/ConceptMap/sct-to-icd10",
+  "version": "1.0.0",
+  "name": "SnomedCtToIcd10",
+  "title": "SNOMED CT to ICD-10 (illustrative)",
+  "status": "active",
+  "description": "An illustrative map from SNOMED CT condition codes that occur in the sample data to ICD-10 2019, used by the conditions-to-icd10 query. It is not a clinically validated map. One element is marked noMap to show that a code the map says has no mapping is a row with a null target. Author: John Grimes.",
+  "group": [
+    {
+      "source": "http://snomed.info/sct",
+      "target": "http://hl7.org/fhir/sid/icd-10|2019",
+      "element": [
+        {
+          "code": "59621000",
+          "display": "Essential hypertension",
+          "target": [
+            {
+              "code": "I10",
+              "display": "Essential (primary) hypertension",
+              "relationship": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "10509002",
+          "display": "Acute bronchitis",
+          "target": [
+            {
+              "code": "J20.9",
+              "display": "Acute bronchitis, unspecified",
+              "relationship": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "195662009",
+          "display": "Acute viral pharyngitis",
+          "target": [
+            {
+              "code": "J02.9",
+              "display": "Acute pharyngitis, unspecified",
+              "relationship": "source-is-narrower-than-target"
+            }
+          ]
+        },
+        {
+          "code": "271737000",
+          "display": "Anemia",
+          "target": [
+            {
+              "code": "D64.9",
+              "display": "Anaemia, unspecified",
+              "relationship": "equivalent"
+            }
+          ]
+        },
+        {
+          "code": "414545008",
+          "display": "Ischemic heart disease",
+          "target": [
+            {
+              "code": "I25.9",
+              "display": "Chronic ischaemic heart disease, unspecified",
+              "relationship": "source-is-broader-than-target"
+            }
+          ]
+        },
+        {
+          "code": "160903007",
+          "display": "Full-time employment",
+          "noMap": true,
+          "comment": "A social finding has no counterpart in a classification of disease"
+        }
+      ]
+    }
+  ]
+}

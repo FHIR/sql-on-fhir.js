@@ -18,6 +18,7 @@ import { migrate, getDb } from './server/db.js'
 import { resourceTypes } from './server/utils.js'
 import { layout } from './server/ui.js'
 import { sendError, operationError, issue } from './server/common.js'
+import { DEFAULT_TERMINOLOGY_MAX_MEMBERS, DEFAULT_TERMINOLOGY_SERVER_URL } from './server/terminology.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -54,8 +55,10 @@ export async function getIndex(req, res) {
 /**
  * Start the server.
  *
- * @param {object} config - `{ port, exportDir?, db? }`. `exportDir` defaults to
- *   the `EXPORT_DIR` environment variable, then `./export`.
+ * @param {object} config - `{ port, exportDir?, terminologyServerUrl?, terminologyMaxMembers?, db? }`.
+ *   `exportDir` defaults to the `EXPORT_DIR` environment variable, then `./export`;
+ *   the terminology settings to `TERMINOLOGY_SERVER_URL` and `TERMINOLOGY_MAX_MEMBERS`,
+ *   then the module defaults.
  * @returns {Promise<object>} the listening `http.Server`.
  */
 export async function startServer(config) {
@@ -75,6 +78,11 @@ export async function startServer(config) {
   })
   app.use(express.urlencoded({ extended: true }))
   config.db = getDb()
+  // Terminology server used to resolve ValueSet and ConceptMap dependencies of SQL queries.
+  // Explicit config wins over the environment, which wins over the default.
+  config.terminologyServerUrl ??= process.env.TERMINOLOGY_SERVER_URL || DEFAULT_TERMINOLOGY_SERVER_URL
+  config.terminologyMaxMembers ??=
+    Number(process.env.TERMINOLOGY_MAX_MEMBERS) || DEFAULT_TERMINOLOGY_MAX_MEMBERS
   config.exportDir = path.resolve(config.exportDir || process.env.EXPORT_DIR || './export')
   migrate(config)
   recoverJobs(config)

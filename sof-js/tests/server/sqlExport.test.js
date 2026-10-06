@@ -10,18 +10,21 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { startTestServer, parameters, post, sqlQueryLibrary, patientView, KNOWN_PATIENTS } from './helpers.js'
+import { sctToIcd10Map } from './conceptMapFixtures.js'
 
 let server
 let base
+let tx
 const port = 3011
 const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sof-export-'))
 
 beforeAll(async () => {
-  ;({ server, base } = await startTestServer(port, { exportDir }))
+  ;({ server, base, tx } = await startTestServer(port, { exportDir }))
 }, 120000)
 
-afterAll(() => {
+afterAll(async () => {
   server?.close()
+  await tx?.close()
   fs.rmSync(exportDir, { recursive: true, force: true })
 })
 
@@ -226,6 +229,35 @@ describe('$sql-export flow', () => {
     const manifest = await result.json()
     const outputs = manifest.parameter.filter((p) => p.name === 'output')
     expect(outputs.map((o) => o.part.find((p) => p.name === 'name').valueString).sort()).toEqual(['a', 'b'])
+  })
+
+  test('a supplied ConceptMap is exposed as a relation to every subject of the job', async () => {
+    const map = sctToIcd10Map()
+    const dep = [{ resource: map.url, label: 'm' }]
+    const { result } = await runExport([
+      subject([
+        { name: 'name', valueString: 'mapped' },
+        { name: 'subjectResource', resource: sqlQueryLibrary('SELECT COUNT(target_code) AS n FROM m', dep) },
+      ]),
+      subject([
+        { name: 'name', valueString: 'nomap' },
+        {
+          name: 'subjectResource',
+          resource: sqlQueryLibrary('SELECT source_code FROM m WHERE target_code IS NULL', dep),
+        },
+      ]),
+      { name: 'context', resource: map },
+      { name: '_format', valueCode: 'json' },
+    ])
+    const manifest = await result.json()
+    const outputs = manifest.parameter.filter((p) => p.name === 'output')
+    const download = async (name) => {
+      const output = outputs.find((o) => o.part.find((p) => p.name === 'name').valueString === name)
+      return (await fetch(output.part.find((p) => p.name === 'location').valueUri)).json()
+    }
+    expect(await download('mapped')).toEqual([{ n: 2 }])
+    expect(await download('nomap')).toEqual([{ source_code: '102499006' }])
+    expect(tx.requests.filter((r) => r.path === '/ConceptMap')).toHaveLength(0)
   })
 
   test('cancellation: DELETE on the status URL is 202 and later polls are 404', async () => {
@@ -464,5 +496,23 @@ describe('$sql-export rejected requests', () => {
     expect(res.status).toBe(404)
     const body = await outcome(res)
     expect(body.issue[0].code).toBe('not-found')
+  })
+
+  test('a ConceptMap the relation cannot represent is 422 at kick-off', async () => {
+    const map = sctToIcd10Map()
+    map.group[0].element[0].target[0].product = [{ attribute: 'laterality', valueCode: 'left' }]
+    const res = await kickOff([
+      subject([
+        {
+          name: 'subjectResource',
+          resource: sqlQueryLibrary('SELECT * FROM m', [{ resource: map.url, label: 'm' }]),
+        },
+      ]),
+      { name: 'context', resource: map },
+    ])
+    expect(res.status).toBe(422)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('processing')
+    expect(body.issue[0].diagnostics).toContain('product')
   })
 })

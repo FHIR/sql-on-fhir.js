@@ -18,14 +18,16 @@ import {
 
 let server
 let base
+let tx
 const port = 3010
 
 beforeAll(async () => {
-  ;({ server, base } = await startTestServer(port))
+  ;({ server, base, tx } = await startTestServer(port))
 }, 120000)
 
-afterAll(() => {
+afterAll(async () => {
   server?.close()
+  await tx?.close()
 })
 
 const VIEW_CANONICAL = 'http://myig.org/ViewDefinition/patient_demographics'

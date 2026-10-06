@@ -51,13 +51,13 @@ OperationDefinitions (`metadata/OperationDefinition/sql-run.json` and
 
 `GET` or `POST /$sql-run`. Supported parameters: the three subject forms,
 `parameters` (bound by name to `Library.parameter`, SQL subjects only),
-`context` (inline ViewDefinitions and SQLViews matched to `relatedArtifact`
-dependencies by canonical URL), `resource` (inline FHIR resources, Bundles
-unwrapped, ViewDefinition subjects only), `_format`, `header`, `patient`,
-`group`, `_since` and `_limit`. Formats: `csv`, `json`, `ndjson` (default) and
-`fhir`; `Accept: application/fhir+json` returns the flat formats wrapped in a
-`Binary` resource. `parquet` and `source` are not supported and are rejected
-with `400 not-supported`.
+`context` (inline ViewDefinitions, SQLViews, ValueSets and ConceptMaps matched
+to `relatedArtifact` dependencies by canonical URL), `resource` (inline FHIR
+resources, Bundles unwrapped, ViewDefinition subjects only), `_format`,
+`header`, `patient`, `group`, `_since` and `_limit`. Formats: `csv`, `json`,
+`ndjson` (default) and `fhir`; `Accept: application/fhir+json` returns the flat
+formats wrapped in a `Binary` resource. `parquet` and `source` are not
+supported and are rejected with `400 not-supported`.
 
 ```bash
 # A ViewDefinition over GET, filtered to one patient
@@ -120,6 +120,97 @@ compartments of the named patients, using the FHIR R4
 `metadata/Group/`) and applies the same rule. `_since` keeps resources whose
 `meta.lastUpdated` is after the instant; resources without one are kept.
 
+### ValueSet and ConceptMap dependencies
+
+A `relatedArtifact` entry with `type = "depends-on"` on a SQLQuery or SQLView
+Library may name a ValueSet or a ConceptMap by canonical URL, optionally pinned
+with `|version`, as specified on the "Terminology in SQL" page of the SQL on
+FHIR Implementation Guide. The artifact is exposed to the SQL under the entry's
+`label` as a relation.
+
+A value set has the columns `system`, `version`, `code`, `display` and
+`inactive`, one row per member, unique on (`system`, `version`, `code`).
+Abstract entries in a hierarchical expansion contribute no row; nested entries
+are flattened.
+
+```json
+"relatedArtifact": [
+  { "type": "depends-on", "resource": "http://myig.org/ViewDefinition/conditions", "label": "conditions" },
+  { "type": "depends-on", "resource": "http://myig.org/ValueSet/cardiovascular-disease|1.0.0", "label": "cardiovascular_codes" }
+]
+```
+
+```sql
+SELECT DISTINCT conditions.patient_id
+FROM conditions
+WHERE EXISTS (
+  SELECT 1 FROM cardiovascular_codes
+  WHERE cardiovascular_codes.system = conditions.system
+    AND cardiovascular_codes.code = conditions.code
+)
+```
+
+A concept map has the columns `source_system`, `source_version`,
+`source_code`, `source_display`, `target_system`, `target_version`,
+`target_code`, `target_display` and `relationship`: one row per
+`group.element.target`, and one per element with `noMap = true`, whose
+`target_code`, `target_display` and `relationship` are null. `group.source` and
+`group.target` are split at `|` into system and version. `group.unmapped` is
+not applied. The `conditions-to-icd10` Library translates each condition with
+a `LEFT JOIN`, keeping conditions the map does not translate:
+
+```sql
+SELECT conditions.patient_id, conditions.code,
+       sct_to_icd10.target_code, sct_to_icd10.relationship
+FROM conditions
+LEFT JOIN sct_to_icd10
+  ON sct_to_icd10.source_system = conditions.system
+ AND sct_to_icd10.source_code = conditions.code
+ AND (sct_to_icd10.relationship IS NULL
+      OR sct_to_icd10.relationship <> 'not-related-to')
+```
+
+Each dependency is resolved once per request (once per job on `$sql-export`,
+shared by every subject), before any SQL runs, in this order:
+
+1. A ValueSet or ConceptMap supplied in `context` whose `url` (and `version`,
+   where pinned) matches.
+2. A ValueSet stored in `metadata/ValueSet/` that matches.
+3. A ConceptMap stored in `metadata/ConceptMap/` that matches.
+4. `GET ValueSet/$expand?url=…` on the terminology server, with
+   `valueSetVersion` where pinned, paging with `offset`/`count` until the
+   expansion is complete.
+5. Where the terminology server reports no such value set,
+   `GET ConceptMap?url=…` on it, with `version` where pinned.
+
+A supplied or stored ValueSet's `expansion` is used when present; one with
+only a `compose` is posted to the terminology server's `$expand`. ConceptMaps
+are read in the FHIR R5 format (`relationship`, `noMap`); an R4-shaped map
+(`equivalence`) is rejected.
+
+A canonical URL that resolves to nothing, or to several versions when
+unpinned, is rejected with `404 Not Found`. A value set or concept map that
+resolves but whose content cannot be determined is rejected with
+`422 Unprocessable Entity`: for a value set, a terminology server failure, an
+expansion that is a page or lists fewer entries than its `total`, or more
+members than the configured cap; for a concept map, a group without `source`,
+an element or target carrying `valueSet`, a target carrying `dependsOn` or
+`product`, an element or target without a `code`, or a target without a
+`relationship` (which includes an R4-shaped target). The public `tx.fhir.org`
+refuses to expand value sets of more than 3000 codes (`too-costly`), which
+surfaces as this `422`; point `TERMINOLOGY_SERVER_URL` at a server without that
+limit for larger value sets. Each resolution writes one log line recording the
+canonical URL, the resolved version and the source, plus for a value set the
+expansion identifier and timestamp, the code system versions reported by the
+expansion and the member count, and for a concept map the mapping count.
+
+Configuration (environment variables):
+
+| Variable                  | Default                  | Purpose                                              |
+| ------------------------- | ------------------------ | ---------------------------------------------------- |
+| `TERMINOLOGY_SERVER_URL`  | `https://tx.fhir.org/r5` | Base URL of the FHIR R5 terminology server           |
+| `TERMINOLOGY_MAX_MEMBERS` | `100000`                 | Maximum members per value set before a `422` is sent |
+
 ### Server extensions
 
 `POST /ViewDefinition/$validate` and `POST /Library/$validate` validate a
@@ -128,9 +219,14 @@ They are not part of the specification.
 
 ## Sample artifacts
 
-`metadata/ViewDefinition/` holds `patient_demographics`, `observations` and
-`patient_multiple_birth`. `metadata/Library/` holds SQLQuery Libraries
-(`patient-count`, `patient-by-id`, `female-patient-births`, ...) and SQLView
-Libraries (`patient-demographics-view`, `active-female-patients-view`, ...),
-including deliberately broken fixtures used by the tests (`ghost-dep-query`,
-`cycle-view-a`/`cycle-view-b`, `parameterised-view`).
+`metadata/ViewDefinition/` holds `patient_demographics`, `observations`,
+`patient_multiple_birth` and `conditions`. `metadata/Library/` holds SQLQuery
+Libraries (`patient-count`, `patient-by-id`, `female-patient-births`,
+`cardiovascular-patients`, `patients-by-gender`, ...) and SQLView Libraries
+(`patient-demographics-view`, `active-female-patients-view`,
+`gender-codes-view`, ...), including deliberately broken fixtures used by the
+tests (`ghost-dep-query`, `cycle-view-a`/`cycle-view-b`, `parameterised-view`).
+`metadata/ValueSet/cardiovascular-disease.json` is a value set with a complete
+expansion, used by `cardiovascular-patients`.
+`metadata/ConceptMap/sct-to-icd10.json` is an illustrative SNOMED CT to ICD-10
+map, including a `noMap` element, used by `conditions-to-icd10`.

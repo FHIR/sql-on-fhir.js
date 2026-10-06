@@ -15,6 +15,10 @@ sqlOnFhir:
     # Example non-sensitive configuration
     # LOG_LEVEL: "info"
     # NODE_ENV: "production"
+    # FHIR R5 terminology server used to resolve ValueSet and ConceptMap
+    # dependencies of SQL queries, and the cap on members per value set.
+    # TERMINOLOGY_SERVER_URL: "https://tx.fhir.org/r5"
+    # TERMINOLOGY_MAX_MEMBERS: "100000"
 
   persistence:
     enabled: false
