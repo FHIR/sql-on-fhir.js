@@ -1,0 +1,17 @@
+{
+  "resourceType": "ValueSet",
+  "id": "ExportStatusCodes",
+  "url": "http://hl7.org/fhir/uv/sql-on-fhir/ValueSet/ExportStatusCodes",
+  "version": "0.0.1",
+  "name": "ExportStatusCodes",
+  "title": "Export Status Codes",
+  "status": "active",
+  "experimental": false,
+  "compose": {
+    "include": [
+      {
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/ExportStatusCodes"
+      }
+    ]
+  }
+}

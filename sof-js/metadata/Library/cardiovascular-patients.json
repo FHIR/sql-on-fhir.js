@@ -1,0 +1,46 @@
+{
+  "resourceType": "Library",
+  "id": "cardiovascular-patients",
+  "url": "http://myig.org/Library/cardiovascular-patients",
+  "name": "CardiovascularPatients",
+  "title": "Cardiovascular patients",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "Returns each patient with at least one condition whose code is a member of the cardiovascular disease value set. The value set is a dependency exposed under the cardiovascular_codes label as a relation with the columns system, version, code, display and inactive; membership is tested with a semi-join on system and code, which cannot multiply rows. Author: John Grimes.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/conditions",
+      "label": "conditions",
+      "display": "Condition view with patient_id, system, version and code columns"
+    },
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ValueSet/cardiovascular-disease|1.0.0",
+      "label": "cardiovascular_codes",
+      "display": "Cardiovascular disease value set, exposed as a relation"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "data": "U0VMRUNUIERJU1RJTkNUIGNvbmRpdGlvbnMucGF0aWVudF9pZApGUk9NIGNvbmRpdGlvbnMKV0hFUkUgRVhJU1RTICgKICBTRUxFQ1QgMQogIEZST00gY2FyZGlvdmFzY3VsYXJfY29kZXMKICBXSEVSRSBjYXJkaW92YXNjdWxhcl9jb2Rlcy5zeXN0ZW0gPSBjb25kaXRpb25zLnN5c3RlbQogICAgQU5EIGNhcmRpb3Zhc2N1bGFyX2NvZGVzLmNvZGUgPSBjb25kaXRpb25zLmNvZGUKKQpPUkRFUiBCWSBjb25kaXRpb25zLnBhdGllbnRfaWQ=",
+      "extension": [
+        {
+          "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text",
+          "valueString": "SELECT DISTINCT conditions.patient_id\nFROM conditions\nWHERE EXISTS (\n  SELECT 1\n  FROM cardiovascular_codes\n  WHERE cardiovascular_codes.system = conditions.system\n    AND cardiovascular_codes.code = conditions.code\n)\nORDER BY conditions.patient_id"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "profile": ["http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLQuery"]
+  }
+}

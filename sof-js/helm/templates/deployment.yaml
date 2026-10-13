@@ -57,6 +57,8 @@ spec:
         {{- if .Values.sqlOnFhir.persistence.enabled }}
         - name: DB_PATH
           value: "/app/data/db.sqlite"
+        - name: EXPORT_DIR
+          value: "/app/data/export"
         {{- end }}
         {{- range $configKey, $configValue := .Values.sqlOnFhir.config }}
         - name: {{ $configKey }}

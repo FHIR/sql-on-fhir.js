@@ -1,0 +1,46 @@
+{
+  "resourceType": "Library",
+  "id": "patients-by-gender",
+  "url": "http://myig.org/Library/patients-by-gender",
+  "name": "PatientsByGender",
+  "title": "Patients by gender",
+  "status": "active",
+  "type": {
+    "coding": [
+      {
+        "system": "http://hl7.org/fhir/uv/sql-on-fhir/CodeSystem/LibraryTypesCodes",
+        "code": "sql-query"
+      }
+    ]
+  },
+  "description": "Counts patients by gender, taking the display text from the administrative-gender value set, which the server does not hold and so expands via the configured terminology server. Author: John Grimes.",
+  "relatedArtifact": [
+    {
+      "type": "depends-on",
+      "resource": "http://myig.org/ViewDefinition/patient_demographics",
+      "label": "patient_demographics",
+      "display": "Patient demographics view"
+    },
+    {
+      "type": "depends-on",
+      "resource": "http://hl7.org/fhir/ValueSet/administrative-gender|5.0.0",
+      "label": "gender_codes",
+      "display": "Administrative gender value set, exposed as a relation"
+    }
+  ],
+  "content": [
+    {
+      "contentType": "application/sql",
+      "data": "U0VMRUNUIGdlbmRlcl9jb2Rlcy5kaXNwbGF5IEFTIGdlbmRlciwgQ09VTlQoKikgQVMgcGF0aWVudHMKRlJPTSBwYXRpZW50X2RlbW9ncmFwaGljcwpKT0lOIGdlbmRlcl9jb2RlcwogIE9OIGdlbmRlcl9jb2Rlcy5jb2RlID0gcGF0aWVudF9kZW1vZ3JhcGhpY3MuZ2VuZGVyCkdST1VQIEJZIGdlbmRlcl9jb2Rlcy5kaXNwbGF5Ck9SREVSIEJZIGdlbmRlcl9jb2Rlcy5kaXNwbGF5",
+      "extension": [
+        {
+          "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/sql-text",
+          "valueString": "SELECT gender_codes.display AS gender, COUNT(*) AS patients\nFROM patient_demographics\nJOIN gender_codes\n  ON gender_codes.code = patient_demographics.gender\nGROUP BY gender_codes.display\nORDER BY gender_codes.display"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "profile": ["http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/SQLQuery"]
+  }
+}
