@@ -90,6 +90,20 @@ Your test runner should automate execution of these cases as follows:
   example, by calling `evaluate(test.view, testcase.resources)`) and compare the
   result with the rows in the `expect` attribute.
 
+Each test carries `tags` naming the part of the specification it exercises, and
+the implementations page groups results by tag. Tests tagged `shareable`
+exercise the Shareable View Definition profile and tests tagged `experimental`
+exercise features that are not yet stable.
+
+Tests tagged `terminology` exercise the Terminology Dependent View Definition
+profile, whose views call the FHIRPath `memberOf` function. A runner that does
+not implement that profile can report them as skipped. In these files, the
+ValueSet resources in `resources` are the value sets that `memberOf` names.
+Resolve the argument of `memberOf` against them by `url`, and also by `version`
+where the canonical URL carries a `|version` suffix. The members of a value set
+are the `system` and `code` pairs in its `expansion.contains`. A canonical URL
+that matches no ValueSet resource cannot be resolved.
+
 ### Generate a test report
 
 The test runner should produce a `test_report.json` file. It is a map keyed by

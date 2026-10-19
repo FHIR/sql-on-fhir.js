@@ -14,6 +14,7 @@
  const reservedTags = {
      shareable: "Profile: Shareable View Definition",
      tabular: "Profile: Tabular View Definition",
+     terminology: "Profile: Terminology Dependent View Definition",
      experimental: "Experimental"
  }
  const otherTags = Array.from(tags)
