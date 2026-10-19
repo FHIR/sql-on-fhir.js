@@ -372,7 +372,7 @@ export function get_columns(def) {
  * @param {boolean} [for_test=true] - Whether to validate the view with the test-suite schema.
  * @param {object} [options] - Evaluation options.
  * @param {string} [options.terminologyUrl] - Base URL of the FHIR terminology server that `memberOf`
- *   resolves value sets against. A view that calls `memberOf` fails to evaluate without one.
+ *   resolves value sets against. Without one, `memberOf` throws when called on a single value.
  * @returns {Promise<object[]>} the rows of the view.
  * @throws {Error} if the view is invalid or cannot be evaluated.
  * @example

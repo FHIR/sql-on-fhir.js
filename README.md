@@ -91,9 +91,9 @@ Your test runner should automate execution of these cases as follows:
   result with the rows in the `expect` attribute.
 
 Each test carries `tags` naming the part of the specification it exercises, and
-the implementations page groups results by tag. Tests tagged `shareable`
-exercise the Shareable View Definition profile and tests tagged `experimental`
-exercise features that are not yet stable.
+the implementations page groups results by tag. For example, tests tagged
+`shareable` exercise the Shareable View Definition profile and tests tagged
+`experimental` exercise features that are not yet stable.
 
 Tests tagged `terminology` exercise the Terminology Dependent View Definition
 profile, whose views call the FHIRPath `memberOf` function. A runner that does
