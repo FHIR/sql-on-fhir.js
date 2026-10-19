@@ -224,15 +224,17 @@ the terminology server at `TERMINOLOGY_SERVER_URL` through
 `ValueSet/$validate-code`. For a `code` or `string` input it first reads the
 value set with `ValueSet?url=…` to find its single code system. Value sets
 supplied in `context` or stored in `metadata/ValueSet/` are not consulted. A
-value set that the terminology server cannot resolve gives an empty result.
+value set that the terminology server cannot resolve gives an empty result, and
+so does a terminology server that fails or cannot be reached. No error is
+reported in either case.
 
 This does not meet the profile's requirement that every call naming the same
 value set sees the same membership, within one evaluation (`termview-3`) and
 within a job (`termview-4`). Each distinct code is checked by its own request,
-fhirpath.js caches the responses for an hour within the process, and the result
-is independent of the expansion used for a SQLQuery or SQLView ValueSet
-dependency. A change to a value set on the terminology server during a job can
-therefore be seen by some calls and not by others.
+fhirpath.js caches the responses, failures included, for an hour within the
+process, and the result is independent of the expansion used for a SQLQuery or
+SQLView ValueSet dependency. A change to a value set on the terminology server
+during a job can therefore be seen by some calls and not by others.
 
 ### Server extensions
 

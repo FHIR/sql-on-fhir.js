@@ -102,7 +102,8 @@ ValueSet resources in `resources` are the value sets that `memberOf` names.
 Resolve the argument of `memberOf` against them by `url`, and also by `version`
 where the canonical URL carries a `|version` suffix. The members of a value set
 are the `system` and `code` pairs in its `expansion.contains`. A canonical URL
-that matches no ValueSet resource cannot be resolved.
+that matches no ValueSet resource cannot be resolved. Each canonical URL that the
+tests expect to resolve matches exactly one ValueSet resource.
 
 ### Generate a test report
 

@@ -5,6 +5,9 @@
  * Author: John Grimes
  */
 
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { startTestServer, parameters, post, sqlQueryLibrary, KNOWN_PATIENTS } from './helpers.js'
 import { startFixtureTerminologyServer } from '../fixtureTerminologyServer.js'
 
@@ -16,6 +19,7 @@ let base
 let tx
 let terminology
 const port = 3013
+const exportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sof-member-of-'))
 
 beforeAll(async () => {
   // A value set with the single member LOINC 8867-4 (Heart rate).
@@ -31,6 +35,7 @@ beforeAll(async () => {
   })
   ;({ server, base, tx } = await startTestServer(port, {
     terminologyServerUrl: terminology.urlFor('server'),
+    exportDir,
   }))
 }, 120000)
 
@@ -38,6 +43,7 @@ afterAll(async () => {
   server?.close()
   await tx?.close()
   await terminology?.close()
+  fs.rmSync(exportDir, { recursive: true, force: true })
 })
 
 const VIEW_URL = 'http://example.org/ViewDefinition/heart-rate-observations'
@@ -105,6 +111,45 @@ describe('memberOf on the server', () => {
     // patient has at least one heart rate observation.
     expect(res.status).toBe(200)
     const rows = await res.json()
+    expect(rows.some((r) => r.code === '8867-4')).toBe(true)
+    for (const r of rows) expect(r.is_heart_rate).toBe(r.code === '8867-4')
+  })
+
+  test('$sql-export on a ViewDefinition resolves memberOf against the terminology server', async () => {
+    // Arrange: an export of the view over one Synthea patient's stored
+    // Observations.
+    const body = parameters([
+      {
+        name: 'subject',
+        part: [
+          { name: 'name', valueString: 'obs' },
+          { name: 'subjectResource', resource: heartRateView },
+        ],
+      },
+      { name: 'patient', valueReference: { reference: `Patient/${KNOWN_PATIENTS[0]}` } },
+      { name: '_format', valueCode: 'ndjson' },
+    ])
+
+    // Act: kick off, poll until the job completes, then download the output.
+    const kickOff = await post(base, '/$sql-export', body, { Prefer: 'respond-async' })
+    expect(kickOff.status).toBe(202)
+    const statusUrl = kickOff.headers.get('Content-Location')
+    let status
+    for (let i = 0; i < 60; i++) {
+      status = await fetch(statusUrl, { redirect: 'manual' })
+      if (status.status !== 202) break
+      await new Promise((r) => setTimeout(r, 200))
+    }
+    expect(status.status).toBe(303)
+    const manifest = await (await fetch(status.headers.get('Location'))).json()
+    const output = manifest.parameter.find((p) => p.name === 'output')
+    const location = output.part.find((p) => p.name === 'location').valueUri
+    const rows = (await (await fetch(location)).text())
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+
+    // Assert: a row is a member exactly when its code is 8867-4.
     expect(rows.some((r) => r.code === '8867-4')).toBe(true)
     for (const r of rows) expect(r.is_heart_rate).toBe(r.code === '8867-4')
   })

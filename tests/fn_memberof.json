@@ -215,7 +215,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               }
             ]
@@ -271,7 +271,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -309,7 +309,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -347,7 +347,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -365,7 +365,7 @@
         ],
         "where": [
           {
-            "path": "getResourceKey() = 'o1'"
+            "path": "id = 'o1'"
           }
         ]
       },
@@ -388,7 +388,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -406,7 +406,7 @@
         ],
         "where": [
           {
-            "path": "getResourceKey() = 'o1'"
+            "path": "id = 'o1'"
           }
         ]
       },
@@ -429,7 +429,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -467,7 +467,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -505,7 +505,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -543,7 +543,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               }
             ]
@@ -568,7 +568,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -614,7 +614,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -658,7 +658,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -696,7 +696,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
+                "path": "id",
                 "type": "id"
               }
             ]
@@ -719,7 +719,7 @@
     },
     {
       "title": "Vital Sign Observations example",
-      "description": "The VitalSignObservations example from the Terminology Dependent View Definition profile, which calls memberOf in a where clause and in a column.",
+      "description": "The VitalSignObservations example from the Terminology Dependent View Definition profile, which calls memberOf in a where clause and in a column. The id column uses id rather than getResourceKey(), and the patient_id column is left out, because resource and reference keys are implementation dependent.",
       "tags": ["terminology"],
       "view": {
         "resource": "Observation",
@@ -734,12 +734,7 @@
             "column": [
               {
                 "name": "id",
-                "path": "getResourceKey()",
-                "type": "id"
-              },
-              {
-                "name": "patient_id",
-                "path": "subject.getReferenceKey(Patient)",
+                "path": "id",
                 "type": "id"
               },
               {
@@ -779,7 +774,6 @@
       "expect": [
         {
           "id": "o1",
-          "patient_id": "p1",
           "effective_date_time": "2024-01-01T10:00:00Z",
           "system": "http://loinc.org",
           "code": "8867-4",
@@ -787,7 +781,6 @@
         },
         {
           "id": "o1",
-          "patient_id": "p1",
           "effective_date_time": "2024-01-01T10:00:00Z",
           "system": "http://example.org/codes",
           "code": "HR",
@@ -795,7 +788,6 @@
         },
         {
           "id": "o3",
-          "patient_id": "p2",
           "effective_date_time": "2024-01-03T10:00:00Z",
           "system": "http://loinc.org",
           "code": "8310-5",
