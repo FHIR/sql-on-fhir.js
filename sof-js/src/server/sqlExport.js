@@ -14,7 +14,7 @@ import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { getBaseUrl } from './utils.js'
-import { resolveTerminology } from './terminology.js'
+import { resolveTerminology, serverBase } from './terminology.js'
 import {
   EXPORT_FORMATS,
   MEDIA_TYPES,
@@ -271,6 +271,7 @@ export async function startExport(config, params, baseUrl) {
         parametersResource: subject.parametersResource,
         expression: subject.expression,
         prepareOnly: true,
+        terminologyUrl: serverBase(config),
       })
     } catch (err) {
       probeErrors.push(err)
@@ -323,6 +324,7 @@ async function runJob(config, job, subjects, graph) {
         dataSource,
         parametersResource: subject.parametersResource,
         expression: subject.expression,
+        terminologyUrl: serverBase(config),
       })
       const file = fileNameFor(subject.name, job.format)
       const body = formatRows(result.rows, result.columns, job.format, job.header)

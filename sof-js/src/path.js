@@ -96,17 +96,26 @@ function process_constants(constants) {
  * Evaluates a FHIRPath expression against data with support for constants and
  * environment variables.
  *
+ * Asynchronous functions are enabled, so that `memberOf` can ask the
+ * terminology server at `terminologyUrl` for value set membership.
+ *
  * @param {object} data - The FHIR data to evaluate against.
  * @param {string} path - The FHIRPath expression to evaluate.
  * @param {Array} constants - Array of constant definitions from the ViewDefinition.
  * @param {object} envVars - Additional environment variables (e.g., { rowIndex: 0 }).
- * @returns {Array} The result of the FHIRPath evaluation.
+ * @param {string} [terminologyUrl] - Base URL of the FHIR terminology server used by `memberOf`.
+ * @returns {Array|Promise<Array>} The result of the FHIRPath evaluation, or a
+ *   Promise of it where the expression calls an asynchronous function.
  */
-export function fhirpath_evaluate(data, path, constants = [], envVars = {}) {
+export function fhirpath_evaluate(data, path, constants = [], envVars = {}, terminologyUrl) {
   const context = process_constants(constants)
   // Merge environment variables into context.
   Object.assign(context, envVars)
-  return fhirpath.evaluate(data, rewrite_path(path), context, fhirpath_r4_model, fhirpath_options)
+  return fhirpath.evaluate(data, rewrite_path(path), context, fhirpath_r4_model, {
+    ...fhirpath_options,
+    async: true,
+    terminologyUrl,
+  })
 }
 
 export function fhirpath_validate(path) {
