@@ -10,6 +10,7 @@
       "version": "5.0.0",
       "status": "active",
       "expansion": {
+        "identifier": "urn:uuid:c4aacec4-e461-550f-b609-69d7e5ca7737",
         "timestamp": "2024-01-01T00:00:00Z",
         "contains": [
           {
@@ -74,6 +75,7 @@
       "version": "1",
       "status": "active",
       "expansion": {
+        "identifier": "urn:uuid:7432358a-ecff-57d6-9036-05dde2f38bb9",
         "timestamp": "2024-01-01T00:00:00Z",
         "contains": [
           {
@@ -98,6 +100,7 @@
       "version": "1",
       "status": "active",
       "expansion": {
+        "identifier": "urn:uuid:202ce7e8-0626-5f38-b0a2-476954555695",
         "timestamp": "2024-01-01T00:00:00Z",
         "contains": [
           {
@@ -114,6 +117,7 @@
       "version": "2",
       "status": "active",
       "expansion": {
+        "identifier": "urn:uuid:3dc3ee53-a120-52b4-a583-eb8370c401ba",
         "timestamp": "2024-01-01T00:00:00Z",
         "contains": [
           {
@@ -134,6 +138,7 @@
       "version": "1",
       "status": "active",
       "expansion": {
+        "identifier": "urn:uuid:e597787e-4471-5216-8fad-5ba189ae87de",
         "timestamp": "2024-01-01T00:00:00Z",
         "contains": [
           {
@@ -192,6 +197,10 @@
       "code": {
         "coding": [
           {
+            "system": "http://example.org/codes",
+            "code": "8310-5"
+          },
+          {
             "system": "http://loinc.org",
             "code": "8310-5"
           }
@@ -224,6 +233,11 @@
             "forEach": "code.coding",
             "column": [
               {
+                "name": "system",
+                "path": "system",
+                "type": "uri"
+              },
+              {
                 "name": "code",
                 "path": "code",
                 "type": "code"
@@ -240,21 +254,31 @@
       "expect": [
         {
           "id": "o1",
+          "system": "http://loinc.org",
           "code": "8867-4",
           "is_vital_sign": true
         },
         {
           "id": "o1",
+          "system": "http://example.org/codes",
           "code": "HR",
           "is_vital_sign": false
         },
         {
           "id": "o2",
+          "system": "http://loinc.org",
           "code": "2339-0",
           "is_vital_sign": false
         },
         {
           "id": "o3",
+          "system": "http://example.org/codes",
+          "code": "8310-5",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "system": "http://loinc.org",
           "code": "8310-5",
           "is_vital_sign": true
         }
@@ -452,7 +476,7 @@
         },
         {
           "id": "o3",
-          "is_vital_sign": true
+          "is_vital_sign": null
         }
       ]
     },
@@ -784,6 +808,13 @@
           "effective_date_time": "2024-01-01T10:00:00Z",
           "system": "http://example.org/codes",
           "code": "HR",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "effective_date_time": "2024-01-03T10:00:00Z",
+          "system": "http://example.org/codes",
+          "code": "8310-5",
           "is_vital_sign": false
         },
         {

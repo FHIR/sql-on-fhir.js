@@ -49,7 +49,9 @@ afterAll(async () => {
 const VIEW_URL = 'http://example.org/ViewDefinition/heart-rate-observations'
 
 // One row per Observation, with its first LOINC code and whether its code is
-// in the heart rate value set.
+// in the heart rate value set. The string literal column calls memberOf on
+// input that is never empty, so it needs the terminology server even when
+// `$sql-export` probes the view against a placeholder resource at kick-off.
 const heartRateView = {
   resourceType: 'ViewDefinition',
   url: VIEW_URL,
@@ -61,6 +63,7 @@ const heartRateView = {
         { name: 'id', path: 'getResourceKey()', type: 'id' },
         { name: 'code', path: `code.coding.where(system = '${LOINC}').code.first()`, type: 'code' },
         { name: 'is_heart_rate', path: `code.memberOf('${HEART_RATE}')`, type: 'boolean' },
+        { name: 'literal_is_heart_rate', path: `'8867-4'.memberOf('${HEART_RATE}')`, type: 'boolean' },
       ],
     },
   ],
@@ -86,8 +89,8 @@ describe('memberOf on the server', () => {
     // Assert: membership comes from the fixture value set.
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual([
-      { id: 'hr', code: '8867-4', is_heart_rate: true },
-      { id: 'glucose', code: '2339-0', is_heart_rate: false },
+      { id: 'hr', code: '8867-4', is_heart_rate: true, literal_is_heart_rate: true },
+      { id: 'glucose', code: '2339-0', is_heart_rate: false, literal_is_heart_rate: true },
     ])
   })
 

@@ -226,7 +226,9 @@ value set with `ValueSet?url=…` to find its single code system. Value sets
 supplied in `context` or stored in `metadata/ValueSet/` are not consulted. A
 value set that the terminology server cannot resolve gives an empty result, and
 so does a terminology server that fails or cannot be reached. No error is
-reported in either case.
+reported in either case. fhirpath.js sets no timeout on these requests, so a
+terminology server that accepts a connection but does not answer delays the
+evaluation until the connection times out.
 
 This does not meet the profile's requirement that every call naming the same
 value set sees the same membership, within one evaluation (`termview-3`) and
