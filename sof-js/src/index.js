@@ -33,74 +33,90 @@ export function row_product(parts) {
   return rows
 }
 
-function forEach(select_expr, node, def, envVars = {}) {
+// Concatenate the rows produced by an async function over each item, in order.
+// Items are processed one at a time, so terminology requests are not issued
+// all at once.
+async function flatMapAsync(items, fn) {
+  const rows = []
+  for (let i = 0; i < items.length; i++) {
+    for (const row of await fn(items[i], i)) rows.push(row)
+  }
+  return rows
+}
+
+// Evaluate a FHIRPath expression within a view evaluation.
+function evaluatePath(node, path, ctx, envVars) {
+  return fhirpath_evaluate(node, path, ctx.constant, envVars, ctx.terminologyUrl)
+}
+
+async function forEach(select_expr, node, ctx, envVars = {}) {
   assert(select_expr.forEach, 'forEach required')
-  let nodes = fhirpath_evaluate(node, select_expr.forEach, def.constant, envVars)
-  return nodes.flatMap((node, index) => {
+  let nodes = await evaluatePath(node, select_expr.forEach, ctx, envVars)
+  return flatMapAsync(nodes, (node, index) => {
     // Each element gets its own rowIndex within this iteration level.
     const childEnvVars = { ...envVars, rowIndex: index }
-    return select({ select: select_expr.select }, node, def, childEnvVars)
+    return select({ select: select_expr.select }, node, ctx, childEnvVars)
   })
 }
 
-function forEachOrNull(select_expr, node, def, envVars = {}) {
+async function forEachOrNull(select_expr, node, ctx, envVars = {}) {
   assert(select_expr.forEachOrNull, 'forEachOrNull required')
-  let nodes = fhirpath_evaluate(node, select_expr.forEachOrNull, def.constant, envVars)
+  let nodes = await evaluatePath(node, select_expr.forEachOrNull, ctx, envVars)
   if (nodes.length == 0) {
     // For empty collections, produce a single null row with rowIndex 0.
     nodes = [{}]
   }
-  return nodes.flatMap((node, index) => {
+  return flatMapAsync(nodes, (node, index) => {
     // Each element gets its own rowIndex within this iteration level.
     const childEnvVars = { ...envVars, rowIndex: index }
-    return select({ select: select_expr.select }, node, def, childEnvVars)
+    return select({ select: select_expr.select }, node, ctx, childEnvVars)
   })
 }
 
-function recursiveTraverse(paths, node, def, envVars = {}) {
+async function recursiveTraverse(paths, node, ctx, envVars = {}) {
   const result = []
 
-  const traverse = (currentNode, isRoot = false) => {
+  const traverse = async (currentNode, isRoot = false) => {
     // Don't add the root node to results, only its children.
     if (!isRoot) {
       result.push(currentNode)
     }
 
     // Recursively traverse using each path expression.
-    paths.forEach((path) => {
-      const childNodes = fhirpath_evaluate(currentNode, path, def.constant, envVars)
-      childNodes.forEach((childNode) => {
+    for (const path of paths) {
+      const childNodes = await evaluatePath(currentNode, path, ctx, envVars)
+      for (const childNode of childNodes) {
         if (childNode && typeof childNode === 'object') {
-          traverse(childNode, false)
+          await traverse(childNode, false)
         }
-      })
-    })
+      }
+    }
   }
 
-  traverse(node, true)
+  await traverse(node, true)
 
   return result
 }
 
-function repeat(select_expr, node, def, envVars = {}) {
+async function repeat(select_expr, node, ctx, envVars = {}) {
   assert(select_expr.repeat, 'repeat required')
   assert(Array.isArray(select_expr.repeat), 'repeat must be an array')
 
   // Use recursiveTraverse to get all nodes at all depths.
-  const nodes = recursiveTraverse(select_expr.repeat, node, def, envVars)
+  const nodes = await recursiveTraverse(select_expr.repeat, node, ctx, envVars)
 
-  return nodes.flatMap((node, index) => {
+  return flatMapAsync(nodes, (node, index) => {
     // Each element in the flattened repeat gets its own rowIndex.
     const childEnvVars = { ...envVars, rowIndex: index }
-    return select({ select: select_expr.select }, node, def, childEnvVars)
+    return select({ select: select_expr.select }, node, ctx, childEnvVars)
   })
 }
 
-function column(select_expr, node, def, envVars = {}) {
+async function column(select_expr, node, ctx, envVars = {}) {
   assert(select_expr.column, 'column required')
   let record = {}
-  select_expr.column.forEach((c) => {
-    let vs = fhirpath_evaluate(node, c.path, def.constant, envVars)
+  for (const c of select_expr.column) {
+    let vs = await evaluatePath(node, c.path, ctx, envVars)
     if (c.collection) {
       record[c.name || c.path] = vs
     } else if (vs.length <= 1) {
@@ -109,7 +125,7 @@ function column(select_expr, node, def, envVars = {}) {
     } else {
       throw new Error('Collection value for ' + c.path + ' => ' + JSON.stringify(vs))
     }
-  })
+  }
   return [record]
 }
 
@@ -143,9 +159,9 @@ function arrays_unique(arrays) {
   }, [])
 }
 
-function unionAll(select_expr, node, def, envVars = {}) {
+async function unionAll(select_expr, node, ctx, envVars = {}) {
   assert(select_expr.unionAll, 'unionAll')
-  const result = select_expr.unionAll.flatMap((d) => do_eval(d, node, def, envVars))
+  const result = await flatMapAsync(select_expr.unionAll, (d) => do_eval(d, node, ctx, envVars))
 
   // TODO ideally, this should be done during the validation.
   const unique = arrays_unique(result.map((x) => Object.keys(x)))
@@ -155,16 +171,15 @@ function unionAll(select_expr, node, def, envVars = {}) {
   return result
 }
 
-function select(select_expr, node, def, envVars = {}) {
+async function select(select_expr, node, ctx, envVars = {}) {
   assert(select_expr.select, 'select')
   if (select_expr.where) {
-    let include = select_expr.where.every((w) => {
-      const val = fhirpath_evaluate(node, w.path, def.constant, envVars)[0]
+    for (const w of select_expr.where) {
+      const val = (await evaluatePath(node, w.path, ctx, envVars))[0]
       assert(val === undefined || typeof val === 'boolean', "'where' expression path should return 'boolean'")
-      return val
-    })
-    if (!include) {
-      return []
+      if (!val) {
+        return []
+      }
     }
   }
   if (select_expr.resource) {
@@ -172,11 +187,11 @@ function select(select_expr, node, def, envVars = {}) {
       return []
     }
   }
-  return row_product(
-    select_expr.select.map((s) => {
-      return do_eval(s, node, def, envVars)
-    }),
-  )
+  const parts = []
+  for (const s of select_expr.select) {
+    parts.push(await do_eval(s, node, ctx, envVars))
+  }
+  return row_product(parts)
 }
 
 // * foreach    / column / [select(..)]   -> foreach select[column, ..]
@@ -305,9 +320,9 @@ let fns = {
   },
 }
 
-function do_eval(select_expr, node, def, envVars = {}) {
+function do_eval(select_expr, node, ctx, envVars = {}) {
   let f = fns[select_expr.type] || fns['unknown']
-  return f(select_expr, node, def, envVars)
+  return f(select_expr, node, ctx, envVars)
 }
 
 function collect_columns(acc, def) {
@@ -349,9 +364,23 @@ export function get_columns(def) {
   return collect_columns([], normalize(structuredClone(def)))
 }
 
-export function evaluate(def, node, for_test = true) {
+/**
+ * Evaluates a ViewDefinition against FHIR resources.
+ *
+ * @param {object} def - The ViewDefinition.
+ * @param {object|object[]} node - A FHIR resource, or an array of them.
+ * @param {boolean} [for_test=true] - Whether to validate the view with the test-suite schema.
+ * @param {object} [options] - Evaluation options.
+ * @param {string} [options.terminologyUrl] - Base URL of the FHIR terminology server that `memberOf`
+ *   resolves value sets against. Without one, `memberOf` throws when called on a single value.
+ * @returns {Promise<object[]>} the rows of the view.
+ * @throws {Error} if the view is invalid or cannot be evaluated.
+ * @example
+ * const rows = await evaluate(view, resources, false, { terminologyUrl: 'https://tx.fhir.org/r5' })
+ */
+export async function evaluate(def, node, for_test = true, { terminologyUrl } = {}) {
   if (!Array.isArray(node)) {
-    return evaluate(def, [node])
+    return evaluate(def, [node], for_test, { terminologyUrl })
   }
 
   const validation = validate(def, for_test)
@@ -364,7 +393,8 @@ export function evaluate(def, node, for_test = true) {
   // console.log("=======  NORM =========")
   // console.dir(normal_def, {depth: null})
 
+  const ctx = { constant: def.constant, terminologyUrl }
   // Initialise rowIndex to 0 at the top level (resource level).
   const initialEnvVars = { rowIndex: 0 }
-  return node.flatMap((n) => do_eval(normal_def, n, def, initialEnvVars))
+  return flatMapAsync(node, (n) => do_eval(normal_def, n, ctx, initialEnvVars))
 }

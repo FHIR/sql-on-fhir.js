@@ -1,0 +1,830 @@
+{
+  "title": "fn_memberof",
+  "description": "The memberOf function, for views that conform to the Terminology Dependent View Definition profile. The ValueSet resources are fixtures: a runner resolves the argument of memberOf against them by url and version, with membership given by expansion.contains.",
+  "fhirVersion": ["5.0.0", "4.0.1", "3.0.2"],
+  "resources": [
+    {
+      "resourceType": "ValueSet",
+      "id": "vital-signs",
+      "url": "http://hl7.org/fhir/ValueSet/observation-vitalsignresult",
+      "version": "5.0.0",
+      "status": "active",
+      "expansion": {
+        "identifier": "urn:uuid:c4aacec4-e461-550f-b609-69d7e5ca7737",
+        "timestamp": "2024-01-01T00:00:00Z",
+        "contains": [
+          {
+            "system": "http://loinc.org",
+            "code": "85353-1"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "9279-1"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8867-4"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "2708-6"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8310-5"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8302-2"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "9843-4"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "29463-7"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "39156-5"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "85354-9"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8480-6"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8462-4"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8478-0"
+          }
+        ]
+      }
+    },
+    {
+      "resourceType": "ValueSet",
+      "id": "status-complete",
+      "url": "http://example.org/ValueSet/observation-status-complete",
+      "version": "1",
+      "status": "active",
+      "expansion": {
+        "identifier": "urn:uuid:7432358a-ecff-57d6-9036-05dde2f38bb9",
+        "timestamp": "2024-01-01T00:00:00Z",
+        "contains": [
+          {
+            "system": "http://hl7.org/fhir/observation-status",
+            "code": "final"
+          },
+          {
+            "system": "http://hl7.org/fhir/observation-status",
+            "code": "amended"
+          },
+          {
+            "system": "http://hl7.org/fhir/observation-status",
+            "code": "corrected"
+          }
+        ]
+      }
+    },
+    {
+      "resourceType": "ValueSet",
+      "id": "status-final-v1",
+      "url": "http://example.org/ValueSet/observation-status-final",
+      "version": "1",
+      "status": "active",
+      "expansion": {
+        "identifier": "urn:uuid:202ce7e8-0626-5f38-b0a2-476954555695",
+        "timestamp": "2024-01-01T00:00:00Z",
+        "contains": [
+          {
+            "system": "http://hl7.org/fhir/observation-status",
+            "code": "final"
+          }
+        ]
+      }
+    },
+    {
+      "resourceType": "ValueSet",
+      "id": "status-final-v2",
+      "url": "http://example.org/ValueSet/observation-status-final",
+      "version": "2",
+      "status": "active",
+      "expansion": {
+        "identifier": "urn:uuid:3dc3ee53-a120-52b4-a583-eb8370c401ba",
+        "timestamp": "2024-01-01T00:00:00Z",
+        "contains": [
+          {
+            "system": "http://hl7.org/fhir/observation-status",
+            "code": "final"
+          },
+          {
+            "system": "http://hl7.org/fhir/observation-status",
+            "code": "amended"
+          }
+        ]
+      }
+    },
+    {
+      "resourceType": "ValueSet",
+      "id": "mixed-systems",
+      "url": "http://example.org/ValueSet/mixed-systems",
+      "version": "1",
+      "status": "active",
+      "expansion": {
+        "identifier": "urn:uuid:e597787e-4471-5216-8fad-5ba189ae87de",
+        "timestamp": "2024-01-01T00:00:00Z",
+        "contains": [
+          {
+            "system": "http://loinc.org",
+            "code": "8867-4"
+          },
+          {
+            "system": "http://example.org/codes",
+            "code": "HR"
+          }
+        ]
+      }
+    },
+    {
+      "resourceType": "Observation",
+      "id": "o1",
+      "status": "final",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "8867-4"
+          },
+          {
+            "system": "http://example.org/codes",
+            "code": "HR"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/p1"
+      },
+      "effectiveDateTime": "2024-01-01T10:00:00Z"
+    },
+    {
+      "resourceType": "Observation",
+      "id": "o2",
+      "status": "amended",
+      "code": {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "2339-0"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/p1"
+      },
+      "effectiveDateTime": "2024-01-02T10:00:00Z"
+    },
+    {
+      "resourceType": "Observation",
+      "id": "o3",
+      "status": "preliminary",
+      "code": {
+        "coding": [
+          {
+            "system": "http://example.org/codes",
+            "code": "8310-5"
+          },
+          {
+            "system": "http://loinc.org",
+            "code": "8310-5"
+          }
+        ]
+      },
+      "subject": {
+        "reference": "Patient/p2"
+      },
+      "effectiveDateTime": "2024-01-03T10:00:00Z"
+    }
+  ],
+  "tests": [
+    {
+      "title": "Coding member and non-member",
+      "description": "Within a forEach over code.coding, memberOf tests each Coding on its own.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              }
+            ]
+          },
+          {
+            "forEach": "code.coding",
+            "column": [
+              {
+                "name": "system",
+                "path": "system",
+                "type": "uri"
+              },
+              {
+                "name": "code",
+                "path": "code",
+                "type": "code"
+              },
+              {
+                "name": "is_vital_sign",
+                "path": "memberOf('http://hl7.org/fhir/ValueSet/observation-vitalsignresult')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "system": "http://loinc.org",
+          "code": "8867-4",
+          "is_vital_sign": true
+        },
+        {
+          "id": "o1",
+          "system": "http://example.org/codes",
+          "code": "HR",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o2",
+          "system": "http://loinc.org",
+          "code": "2339-0",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "system": "http://example.org/codes",
+          "code": "8310-5",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "system": "http://loinc.org",
+          "code": "8310-5",
+          "is_vital_sign": true
+        }
+      ]
+    },
+    {
+      "title": "CodeableConcept is a member when any coding is",
+      "description": "A CodeableConcept is a member when at least one of its codings is, and not a member when none is.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "is_vital_sign",
+                "path": "code.memberOf('http://hl7.org/fhir/ValueSet/observation-vitalsignresult')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "is_vital_sign": true
+        },
+        {
+          "id": "o2",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "is_vital_sign": true
+        }
+      ]
+    },
+    {
+      "title": "code element against a single-system value set",
+      "description": "A code element is tested against a value set that contains codes from one code system.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "is_complete",
+                "path": "status.memberOf('http://example.org/ValueSet/observation-status-complete')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "is_complete": true
+        },
+        {
+          "id": "o2",
+          "is_complete": true
+        },
+        {
+          "id": "o3",
+          "is_complete": false
+        }
+      ]
+    },
+    {
+      "title": "string against a single-system value set",
+      "description": "A string is a member when it equals a code in a value set that contains codes from one code system.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "final_is_complete",
+                "path": "'final'.memberOf('http://example.org/ValueSet/observation-status-complete')",
+                "type": "boolean"
+              },
+              {
+                "name": "registered_is_complete",
+                "path": "'registered'.memberOf('http://example.org/ValueSet/observation-status-complete')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ],
+        "where": [
+          {
+            "path": "id = 'o1'"
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "final_is_complete": true,
+          "registered_is_complete": false
+        }
+      ]
+    },
+    {
+      "title": "string against a multi-system value set is empty",
+      "description": "memberOf on a string is empty when the value set contains codes from more than one code system.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "single_system",
+                "path": "'8867-4'.memberOf('http://hl7.org/fhir/ValueSet/observation-vitalsignresult')",
+                "type": "boolean"
+              },
+              {
+                "name": "multi_system",
+                "path": "'8867-4'.memberOf('http://example.org/ValueSet/mixed-systems')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ],
+        "where": [
+          {
+            "path": "id = 'o1'"
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "single_system": true,
+          "multi_system": null
+        }
+      ]
+    },
+    {
+      "title": "input with more than one value is empty",
+      "description": "memberOf is empty when its input has more than one value, so code.coding.memberOf() is empty for a resource with two codings.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "is_vital_sign",
+                "path": "code.coding.memberOf('http://hl7.org/fhir/ValueSet/observation-vitalsignresult')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "is_vital_sign": null
+        },
+        {
+          "id": "o2",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "is_vital_sign": null
+        }
+      ]
+    },
+    {
+      "title": "empty input is empty",
+      "description": "memberOf is empty when its input is empty.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "method_is_vital_sign",
+                "path": "method.memberOf('http://hl7.org/fhir/ValueSet/observation-vitalsignresult')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "method_is_vital_sign": null
+        },
+        {
+          "id": "o2",
+          "method_is_vital_sign": null
+        },
+        {
+          "id": "o3",
+          "method_is_vital_sign": null
+        }
+      ]
+    },
+    {
+      "title": "unresolvable value set in a column is null",
+      "description": "memberOf is empty when its argument cannot be resolved to a value set, which produces a null column value.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "is_member",
+                "path": "code.memberOf('http://example.org/ValueSet/unknown')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "is_member": null
+        },
+        {
+          "id": "o2",
+          "is_member": null
+        },
+        {
+          "id": "o3",
+          "is_member": null
+        }
+      ]
+    },
+    {
+      "title": "unresolvable value set in a where clause excludes every resource",
+      "description": "An empty memberOf result in a where clause excludes the resource, so the view returns no rows.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              }
+            ]
+          }
+        ],
+        "where": [
+          {
+            "path": "code.memberOf('http://example.org/ValueSet/unknown')"
+          }
+        ]
+      },
+      "expect": []
+    },
+    {
+      "title": "versioned canonical selects that version",
+      "description": "A |version suffix on the canonical URL selects the matching version of the value set.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "in_v1",
+                "path": "status.memberOf('http://example.org/ValueSet/observation-status-final|1')",
+                "type": "boolean"
+              },
+              {
+                "name": "in_v2",
+                "path": "status.memberOf('http://example.org/ValueSet/observation-status-final|2')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "in_v1": true,
+          "in_v2": true
+        },
+        {
+          "id": "o2",
+          "in_v1": false,
+          "in_v2": true
+        },
+        {
+          "id": "o3",
+          "in_v1": false,
+          "in_v2": false
+        }
+      ]
+    },
+    {
+      "title": "canonical naming an unknown version is unresolvable",
+      "description": "A |version suffix that matches no version of the value set cannot be resolved, so memberOf is empty.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "in_v3",
+                "path": "status.memberOf('http://example.org/ValueSet/observation-status-final|3')",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "in_v3": null
+        },
+        {
+          "id": "o2",
+          "in_v3": null
+        },
+        {
+          "id": "o3",
+          "in_v3": null
+        }
+      ]
+    },
+    {
+      "title": "argument supplied through a constant",
+      "description": "The value set URL can be supplied through a valueCanonical constant.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "constant": [
+          {
+            "name": "vital_signs",
+            "valueCanonical": "http://hl7.org/fhir/ValueSet/observation-vitalsignresult"
+          }
+        ],
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "is_vital_sign",
+                "path": "code.memberOf(%vital_signs)",
+                "type": "boolean"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "is_vital_sign": true
+        },
+        {
+          "id": "o2",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "is_vital_sign": true
+        }
+      ]
+    },
+    {
+      "title": "where clause keeps resources with a member coding",
+      "description": "A where clause using memberOf keeps only the resources whose code is a member of the value set.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              }
+            ]
+          }
+        ],
+        "where": [
+          {
+            "path": "code.memberOf('http://hl7.org/fhir/ValueSet/observation-vitalsignresult')"
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1"
+        },
+        {
+          "id": "o3"
+        }
+      ]
+    },
+    {
+      "title": "Vital Sign Observations example",
+      "description": "The VitalSignObservations example from the Terminology Dependent View Definition profile, which calls memberOf in a where clause and in a column. The id column uses id rather than getResourceKey(), and the patient_id column is left out, because resource and reference keys are implementation dependent.",
+      "tags": ["terminology"],
+      "view": {
+        "resource": "Observation",
+        "constant": [
+          {
+            "name": "vital_signs",
+            "valueCanonical": "http://hl7.org/fhir/ValueSet/observation-vitalsignresult|5.0.0"
+          }
+        ],
+        "select": [
+          {
+            "column": [
+              {
+                "name": "id",
+                "path": "id",
+                "type": "id"
+              },
+              {
+                "name": "effective_date_time",
+                "path": "effective.ofType(dateTime)",
+                "type": "dateTime"
+              }
+            ]
+          },
+          {
+            "forEach": "code.coding",
+            "column": [
+              {
+                "name": "system",
+                "path": "system",
+                "type": "uri"
+              },
+              {
+                "name": "code",
+                "path": "code",
+                "type": "code"
+              },
+              {
+                "name": "is_vital_sign",
+                "path": "memberOf(%vital_signs)",
+                "type": "boolean"
+              }
+            ]
+          }
+        ],
+        "where": [
+          {
+            "path": "code.memberOf(%vital_signs)"
+          }
+        ]
+      },
+      "expect": [
+        {
+          "id": "o1",
+          "effective_date_time": "2024-01-01T10:00:00Z",
+          "system": "http://loinc.org",
+          "code": "8867-4",
+          "is_vital_sign": true
+        },
+        {
+          "id": "o1",
+          "effective_date_time": "2024-01-01T10:00:00Z",
+          "system": "http://example.org/codes",
+          "code": "HR",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "effective_date_time": "2024-01-03T10:00:00Z",
+          "system": "http://example.org/codes",
+          "code": "8310-5",
+          "is_vital_sign": false
+        },
+        {
+          "id": "o3",
+          "effective_date_time": "2024-01-03T10:00:00Z",
+          "system": "http://loinc.org",
+          "code": "8310-5",
+          "is_vital_sign": true
+        }
+      ]
+    }
+  ]
+}
