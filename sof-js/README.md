@@ -50,7 +50,7 @@ OperationDefinitions (`metadata/OperationDefinition/sql-run.json` and
 ### `$sql-run`
 
 `GET` or `POST /$sql-run`. Supported parameters: the three subject forms,
-`parameters` (bound by name to `Library.parameter`, SQL subjects only),
+`parameters` (bound by name to `Library.parameter`, SQLQuery subjects only),
 `context` (inline ViewDefinitions, SQLViews, ValueSets and ConceptMaps matched
 to `relatedArtifact` dependencies by canonical URL), `resource` (inline FHIR
 resources, Bundles unwrapped, ViewDefinition subjects only), `_format`,

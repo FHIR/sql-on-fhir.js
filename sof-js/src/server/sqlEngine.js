@@ -302,7 +302,7 @@ async function runView(library, ctx, stack) {
  *
  * @param {object} options - Inputs.
  * @param {object} options.library - The Library to execute.
- * @param {object|null} options.parametersResource - Parameter values (ignored for a SQLView, which declares none).
+ * @param {object|null} options.parametersResource - Parameter values; null for a SQLView, which declares none.
  * @param {(canonical: string) => {kind: string, resource: object}|null} options.resolveDependency - Resolves a
  *   dependency canonical, as written in `relatedArtifact.resource`, to a ViewDefinition, SQLView, or the
  *   resolution of a ValueSet or ConceptMap (see `resolveTerminology`).

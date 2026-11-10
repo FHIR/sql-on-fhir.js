@@ -75,7 +75,7 @@
           "min": 0,
           "max": "1",
           "type": "Parameters",
-          "documentation": "Input parameter values for this subject, bound by name to the parameters the Library declares (Library.parameter.name). Permitted only where this repetition's subject is a SQLQuery or SQLView; supplying it where the subject is a ViewDefinition is rejected with 400 Bad Request, because a ViewDefinition declares no parameters."
+          "documentation": "Input parameter values for this subject, bound by name to the parameters the Library declares (Library.parameter.name). Permitted only where this repetition's subject is a SQLQuery; supplying it where the subject is a ViewDefinition or SQLView is rejected with 400 Bad Request, because neither declares parameters."
         }
       ]
     },
