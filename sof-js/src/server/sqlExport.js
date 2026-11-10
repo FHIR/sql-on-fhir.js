@@ -15,6 +15,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import { getBaseUrl } from './utils.js'
 import { resolveTerminology } from './terminology.js'
+import { loadRelation } from './relation.js'
 import {
   EXPORT_FORMATS,
   MEDIA_TYPES,
@@ -257,7 +258,7 @@ export async function startExport(config, params, baseUrl) {
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
     lookupTerminology: (canonical, supplied) => resolveTerminology(canonical, config, supplied),
-    config,
+    lookupRelation: (structureDefinition, canonical) => loadRelation(structureDefinition, canonical, config),
   })
 
   // A conformant subject that cannot be processed (SQL syntax error, invalid

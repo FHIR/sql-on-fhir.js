@@ -13,7 +13,7 @@ import { validateSqlLibraryShape } from './sqlLibraryValidation.js'
 import { inPatientCompartment } from './compartment.js'
 import { runLibrary, valueFieldForFhirType } from './sqlEngine.js'
 import { logTerminologyResolution } from './terminology.js'
-import { isRelation, loadRelation, logRelationResolution } from './relation.js'
+import { isRelation, logRelationResolution } from './relation.js'
 import { issue, operationError, fail, combineErrors, parseCanonical, viewColumns } from './common.js'
 
 export {
@@ -446,17 +446,36 @@ function contextKind(entry) {
  * @param {object[]} options.subjects - Resolved subjects, or bare resources (classified with `artifactKind`).
  * @param {object[]} options.context - Inline ViewDefinition, SQLView, ValueSet and ConceptMap resources.
  * @param {(url: string, version: string|null) => Promise<{kind: string, resource: object}|null>} options.lookup - Server-side canonical resolver.
- * @param {object} [options.config] - Server config (`relationDir`, `relationSources`) for loading Relation data files.
  * @param {(canonical: string, supplied?: object) => Promise<{kind: string, resource: object}>} [options.lookupTerminology] -
  *   Resolves a ValueSet or ConceptMap dependency (see `resolveTerminology`), given the matched context entry where
  *   there is one, throwing 404 when unknown and 422 when its content cannot be determined. Required when `context`
  *   carries a ValueSet or ConceptMap; without it an unresolved dependency is simply missing.
+ * @param {(structureDefinition: object, canonical: string) => Promise<{kind: 'Relation', resource: object}>} [options.lookupRelation] -
+ *   Loads the rows of a Relation dependency from its data file (see `loadRelation`), given the matched context entry
+ *   or the stored definition. Required when a dependency is a Relation.
  * @returns {Promise<Map<string, {kind: string, resource: object}>>} canonical (as written in the dependency, so a
  *   pinned `url|version` is distinct from the bare url) to resolved artifact.
  * @throws {Error} 400 for an unusable or unmatched context entry, 404 for an unresolvable dependency,
  *   422 for a value set or concept map whose content cannot be determined.
  */
-export async function resolveGraph({ subjects, context, lookup, lookupTerminology = null, config = {} }) {
+export async function resolveGraph({
+  subjects,
+  context,
+  lookup,
+  lookupTerminology = null,
+  lookupRelation = null,
+}) {
+  const relation = async (dep, structureDefinition) => {
+    if (!lookupRelation)
+      fail(
+        422,
+        'not-supported',
+        `Dependency '${dep.canonical}' is a Relation, which this operation cannot load`,
+      )
+    const artifact = await lookupRelation(structureDefinition, dep.canonical)
+    logRelationResolution(dep.label, artifact)
+    return artifact
+  }
   const contextByUrl = new Map()
   for (const entry of context) {
     const kind = contextKind(entry)
@@ -497,17 +516,13 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
         artifact = await lookupTerminology(dep.canonical, supplied.resource)
         logTerminologyResolution(dep.label, artifact)
       } else if (supplied.kind === 'Relation') {
-        artifact = await loadRelation(supplied.resource, dep.canonical, config)
-        logRelationResolution(dep.label, artifact)
+        artifact = await relation(dep, supplied.resource)
       } else {
         artifact = supplied
       }
     } else {
       artifact = await lookup(dep.url, dep.version)
-      if (artifact?.kind === 'Relation') {
-        artifact = await loadRelation(artifact.resource, dep.canonical, config)
-        logRelationResolution(dep.label, artifact)
-      }
+      if (artifact?.kind === 'Relation') artifact = await relation(dep, artifact.resource)
     }
     if (!artifact && lookupTerminology) {
       try {
