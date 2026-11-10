@@ -8,6 +8,7 @@
 
 import { getBaseUrl } from './utils.js'
 import { resolveTerminology } from './terminology.js'
+import { loadRelation } from './relation.js'
 import {
   RUN_FORMATS,
   MEDIA_TYPES,
@@ -119,6 +120,7 @@ export async function runOperation(config, params, { baseUrl, accept }) {
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
     lookupTerminology: (canonical, supplied) => resolveTerminology(canonical, config, supplied),
+    lookupRelation: (structureDefinition, canonical) => loadRelation(structureDefinition, canonical, config),
   })
 
   const dataSource = makeDataSource(

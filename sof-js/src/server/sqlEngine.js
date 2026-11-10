@@ -260,6 +260,31 @@ async function materialiseDependencies(library, db, ctx, stack) {
         columns.map((c) => c.name),
         await ctx.evaluateView(view),
       )
+    } else if (artifact.kind === 'Relation') {
+      // A column's SQL storage type comes from its `mapping[identity=sql]`
+      // where declared, otherwise from the affinity of its FHIR type.
+      const columns = artifact.resource.columns
+      for (const c of columns) if (!(c.name in columnTypes)) columnTypes[c.name] = c.type
+      const ddl = columns
+        .map((c) => (c.sqlType ? `"${c.name}" ${c.sqlType}` : columnDdl(c.name, c.type)))
+        .concat(
+          columns.some((c) => c.primaryKey)
+            ? [
+                `PRIMARY KEY (${columns
+                  .filter((c) => c.primaryKey)
+                  .map((c) => `"${c.name}"`)
+                  .join(', ')})`,
+              ]
+            : [],
+        )
+        .join(', ')
+      await dbRun(db, `CREATE TABLE "${dep.label}" (${ddl})`)
+      await insertRows(
+        db,
+        dep.label,
+        columns.map((c) => c.name),
+        artifact.resource.rows,
+      )
     } else if (artifact.kind in TERMINOLOGY_COLUMNS) {
       const columns = TERMINOLOGY_COLUMNS[artifact.kind]
       await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(columns)})`)

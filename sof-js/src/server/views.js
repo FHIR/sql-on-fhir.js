@@ -9,6 +9,7 @@ import { wrapBundle, isHtml } from './utils.js'
 import { layout } from './ui.js'
 import { search, read } from './db.js'
 import { artifactKind } from './operations.js'
+import { isRelation, relationSources } from './relation.js'
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -88,6 +89,34 @@ export async function getLibraryListEndpoint(req, res) {
   })
 }
 
+export async function getRelationListEndpoint(req, res) {
+  const resources = (await search(req.config, 'StructureDefinition', 1000)).filter(isRelation)
+  if (!isHtml(req)) return sendBundle(res, resources)
+  renderList(res, {
+    title: 'Relations',
+    resourceType: 'StructureDefinition',
+    headers: ['Name', 'Columns', 'Sources', 'URL'],
+    rows: resources.map(
+      (r) =>
+        `<tr>${td(`<a class="text-blue-500 hover:text-blue-700" href="/StructureDefinition/${encodeURIComponent(r.id)}">${escapeHtml(r.title || r.name || r.id)}</a>`)}${td(
+          escapeHtml(
+            (r.differential?.element || [])
+              .map((e) => e.path)
+              .filter((p) => p && p.includes('.'))
+              .map((p) => p.split('.').pop())
+              .join(', '),
+          ),
+        )}${td(
+          escapeHtml(
+            relationSources(r)
+              .map((a) => a.contentType || a.url)
+              .join(', '),
+          ),
+        )}${td(escapeHtml(r.url))}</tr>`,
+    ),
+  })
+}
+
 async function getArtifactEndpoint(req, res, resourceType, listTitle) {
   const resource = await read(req.config, resourceType, req.params.id)
   if (!isHtml(req)) {
@@ -119,7 +148,7 @@ async function getArtifactEndpoint(req, res, resourceType, listTitle) {
         ${breadcrumbs([`/${resourceType}`, listTitle], [`/${resourceType}/${encodeURIComponent(resource.id)}`, resource.name || resource.id])}
         <div class="mt-4 flex items-center space-x-4 border-b border-gray-200 pb-2">
           <h1 class="flex-1 text-2xl font-bold">${escapeHtml(resource.title || resource.name || resource.id)}</h1>
-          ${runLink(resourceType, resource.id)}
+          ${resourceType === 'StructureDefinition' ? '' : runLink(resourceType, resource.id)}
         </div>
         <pre class="bg-gray-100 p-4 rounded-md text-xs">${escapeHtml(JSON.stringify(resource, null, 2))}</pre>
       </div>
@@ -134,4 +163,8 @@ export function mountRoutes(app) {
   )
   app.get('/Library', getLibraryListEndpoint)
   app.get('/Library/:id', (req, res) => getArtifactEndpoint(req, res, 'Library', 'Libraries'))
+  app.get('/StructureDefinition', getRelationListEndpoint)
+  app.get('/StructureDefinition/:id', (req, res) =>
+    getArtifactEndpoint(req, res, 'StructureDefinition', 'Relations'),
+  )
 }

@@ -37,6 +37,7 @@ export async function getIndex(req, res) {
         ${link('/$sql-export/form', '$sql-export (asynchronous)')}
         ${link('/ViewDefinition', 'ViewDefinitions')}
         ${link('/Library', 'Libraries (SQLQuery and SQLView)')}
+        ${link('/StructureDefinition', 'Relations (external tables)')}
         ${link('/Group', 'Groups')}
         ${link('/ViewDefinition/$validate', 'ViewDefinition/$validate')}
         ${link('/Library/$validate/form', 'Library/$validate')}

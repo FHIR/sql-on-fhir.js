@@ -15,6 +15,7 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import { getBaseUrl } from './utils.js'
 import { resolveTerminology } from './terminology.js'
+import { loadRelation } from './relation.js'
 import {
   EXPORT_FORMATS,
   MEDIA_TYPES,
@@ -257,6 +258,7 @@ export async function startExport(config, params, baseUrl) {
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
     lookupTerminology: (canonical, supplied) => resolveTerminology(canonical, config, supplied),
+    lookupRelation: (structureDefinition, canonical) => loadRelation(structureDefinition, canonical, config),
   })
 
   // A conformant subject that cannot be processed (SQL syntax error, invalid
@@ -297,6 +299,7 @@ export async function startExport(config, params, baseUrl) {
       url: s.resource.url || null,
       id: s.resource.id || null,
     })),
+    dependencies: dependencyProvenance(graph),
     outputs: [],
     error: null,
   }
@@ -385,6 +388,34 @@ function interimResponse(job) {
 }
 
 /**
+ * Provenance of the external data a job's results depend on: for every
+ * Relation in the graph, the file it was read from and its sha256, so that a
+ * result can be reproduced against the same data.
+ *
+ * @param {Map<string, {kind: string, resource: object}>} graph - Resolved dependency graph.
+ * @returns {object[]} one record per Relation dependency.
+ */
+export function dependencyProvenance(graph) {
+  const records = []
+  for (const [canonical, artifact] of graph) {
+    if (artifact.kind !== 'Relation') continue
+    const r = artifact.resource
+    records.push({
+      kind: 'Relation',
+      canonical,
+      resolved: `${r.resolvedUrl}|${r.resolvedVersion ?? ''}`,
+      source: r.source,
+      origin: r.origin,
+      contentType: r.contentType,
+      sha256: r.sha256,
+      bytes: r.bytes,
+      rows: r.rows.length,
+    })
+  }
+  return records
+}
+
+/**
  * Build the manifest for a completed job.
  *
  * @param {object} job - The job record.
@@ -400,6 +431,17 @@ export function manifest(job) {
       { name: 'exportStartTime', valueInstant: job.startTime },
       { name: 'exportEndTime', valueInstant: job.endTime },
       { name: 'exportDuration', valueInteger: duration },
+      ...(job.dependencies || []).map((d) => ({
+        name: 'dependency',
+        part: [
+          { name: 'kind', valueCode: d.kind },
+          { name: 'canonical', valueCanonical: d.canonical },
+          { name: 'source', valueUri: d.source },
+          { name: 'contentType', valueCode: d.contentType },
+          { name: 'sha256', valueString: d.sha256 },
+          { name: 'rows', valueInteger: d.rows },
+        ],
+      })),
       ...job.outputs.map((o) => ({
         name: 'output',
         part: [

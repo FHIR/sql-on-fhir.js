@@ -1,0 +1,91 @@
+{
+  "resourceType": "StructureDefinition",
+  "url": "http://myig.org/StructureDefinition/omop-concept",
+  "version": "5.4",
+  "name": "OmopConcept",
+  "title": "OMOP CDM concept (subset)",
+  "status": "active",
+  "kind": "logical",
+  "abstract": false,
+  "type": "OmopConcept",
+  "baseDefinition": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/Relation",
+  "derivation": "specialization",
+  "extension": [
+    {
+      "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/relation-source",
+      "valueAttachment": {
+        "contentType": "application/vnd.apache.parquet",
+        "url": "file:omop_concept.parquet"
+      }
+    }
+  ],
+  "differential": {
+    "element": [
+      {
+        "path": "OmopConcept"
+      },
+      {
+        "path": "OmopConcept.concept_id",
+        "min": 1,
+        "type": [
+          {
+            "code": "integer64"
+          }
+        ],
+        "mapping": [
+          {
+            "identity": "sql",
+            "map": "BIGINT"
+          }
+        ],
+        "extension": [
+          {
+            "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/primary-key",
+            "valueBoolean": true
+          }
+        ]
+      },
+      {
+        "path": "OmopConcept.concept_name",
+        "min": 1,
+        "type": [
+          {
+            "code": "string"
+          }
+        ],
+        "mapping": [
+          {
+            "identity": "sql",
+            "map": "VARCHAR(255)"
+          }
+        ]
+      },
+      {
+        "path": "OmopConcept.vocabulary_id",
+        "min": 1,
+        "type": [
+          {
+            "code": "code"
+          }
+        ]
+      },
+      {
+        "path": "OmopConcept.concept_code",
+        "min": 1,
+        "type": [
+          {
+            "code": "code"
+          }
+        ]
+      },
+      {
+        "path": "OmopConcept.standard_concept",
+        "type": [
+          {
+            "code": "code"
+          }
+        ]
+      }
+    ]
+  }
+}

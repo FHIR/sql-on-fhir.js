@@ -1,0 +1,62 @@
+{
+  "resourceType": "StructureDefinition",
+  "url": "http://myig.org/StructureDefinition/us-states",
+  "version": "1.0",
+  "name": "UsStates",
+  "title": "US states (reference table)",
+  "status": "active",
+  "kind": "logical",
+  "abstract": false,
+  "type": "UsStates",
+  "baseDefinition": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/Relation",
+  "derivation": "specialization",
+  "extension": [
+    {
+      "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/relation-source",
+      "valueAttachment": {
+        "contentType": "text/csv",
+        "url": "file:us_states.csv"
+      }
+    },
+    {
+      "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/relation-source",
+      "valueAttachment": {
+        "contentType": "application/vnd.apache.parquet",
+        "url": "https://myig.org/data/us_states.parquet"
+      }
+    }
+  ],
+  "differential": {
+    "element": [
+      {
+        "path": "UsStates"
+      },
+      {
+        "path": "UsStates.code",
+        "min": 1,
+        "type": [
+          {
+            "code": "code"
+          }
+        ]
+      },
+      {
+        "path": "UsStates.name",
+        "min": 1,
+        "type": [
+          {
+            "code": "string"
+          }
+        ]
+      },
+      {
+        "path": "UsStates.fips",
+        "type": [
+          {
+            "code": "string"
+          }
+        ]
+      }
+    ]
+  }
+}
