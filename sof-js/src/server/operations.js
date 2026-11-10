@@ -446,6 +446,7 @@ function contextKind(entry) {
  * @param {object[]} options.subjects - Resolved subjects, or bare resources (classified with `artifactKind`).
  * @param {object[]} options.context - Inline ViewDefinition, SQLView, ValueSet and ConceptMap resources.
  * @param {(url: string, version: string|null) => Promise<{kind: string, resource: object}|null>} options.lookup - Server-side canonical resolver.
+ * @param {object} [options.config] - Server config (`relationDir`, `relationSources`) for loading Relation data files.
  * @param {(canonical: string, supplied?: object) => Promise<{kind: string, resource: object}>} [options.lookupTerminology] -
  *   Resolves a ValueSet or ConceptMap dependency (see `resolveTerminology`), given the matched context entry where
  *   there is one, throwing 404 when unknown and 422 when its content cannot be determined. Required when `context`
@@ -455,7 +456,7 @@ function contextKind(entry) {
  * @throws {Error} 400 for an unusable or unmatched context entry, 404 for an unresolvable dependency,
  *   422 for a value set or concept map whose content cannot be determined.
  */
-export async function resolveGraph({ subjects, context, lookup, lookupTerminology = null }) {
+export async function resolveGraph({ subjects, context, lookup, lookupTerminology = null, config = {} }) {
   const contextByUrl = new Map()
   for (const entry of context) {
     const kind = contextKind(entry)
@@ -496,7 +497,7 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
         artifact = await lookupTerminology(dep.canonical, supplied.resource)
         logTerminologyResolution(dep.label, artifact)
       } else if (supplied.kind === 'Relation') {
-        artifact = await loadRelation(supplied.resource, dep.canonical)
+        artifact = await loadRelation(supplied.resource, dep.canonical, config)
         logRelationResolution(dep.label, artifact)
       } else {
         artifact = supplied
@@ -504,7 +505,7 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
     } else {
       artifact = await lookup(dep.url, dep.version)
       if (artifact?.kind === 'Relation') {
-        artifact = await loadRelation(artifact.resource, dep.canonical)
+        artifact = await loadRelation(artifact.resource, dep.canonical, config)
         logRelationResolution(dep.label, artifact)
       }
     }

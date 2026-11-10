@@ -3,9 +3,15 @@
  * SQL on FHIR `Relation` base describes a table that is not produced by a
  * ViewDefinition (a CSV of reference data, an OMOP vocabulary table, …). Its
  * `differential` elements are the columns; a repeatable `relation-source`
- * extension carries the data as an Attachment (`data` or `url`), one per
- * format. This module reads such a definition and produces the rows of the
- * relation so that `sqlEngine` can expose it under its dependency label.
+ * extension carries the data location as an Attachment `url`, one per format.
+ * This module reads such a definition and produces the rows of the relation
+ * so that `sqlEngine` can expose it under its dependency label.
+ *
+ * Data is always a file, never embedded in the definition: an `http(s):` url
+ * is fetched, a `file:` url is read under the server's relation directory
+ * (`config.relationDir`, default `metadata/relations/`). Runner configuration
+ * wins over the definition: `config.relationSources[canonical]` names the
+ * file or url to use regardless of what the definition says.
  *
  * Only `text/csv` is loaded for now; other formats are skipped so that a
  * definition can offer several and an engine takes the first it supports.
@@ -13,7 +19,14 @@
  * Author: niquola
  */
 
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { fail } from './common.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+/** Default directory for `file:` relation sources: `metadata/relations/`. */
+export const DEFAULT_RELATION_DIR = path.join(__dirname, '../../metadata/relations')
 
 export const SPEC_BASE = 'http://hl7.org/fhir/uv/sql-on-fhir'
 export const RELATION_BASE = `${SPEC_BASE}/StructureDefinition/Relation`
@@ -209,65 +222,113 @@ export function csvRows(text, columns, canonical) {
   return rows
 }
 
-async function attachmentText(attachment, canonical) {
-  if (attachment.data) return Buffer.from(attachment.data, 'base64').toString('utf8')
-  if (attachment.url) {
-    let res
-    try {
-      res = await fetch(attachment.url)
-    } catch (err) {
-      fail(
-        422,
-        'exception',
-        `Relation '${canonical}': source ${attachment.url} is unreachable (${err.message})`,
-      )
-    }
-    if (!res.ok)
-      fail(422, 'not-found', `Relation '${canonical}': source ${attachment.url} answered ${res.status}`)
-    return res.text()
-  }
-  fail(422, 'invalid', `Relation '${canonical}': a relation-source has neither data nor url`)
+function contentTypeOf(attachment) {
+  return String(attachment.contentType || '')
+    .split(';')[0]
+    .trim()
+}
+
+function guessContentType(location) {
+  if (/\.csv$/i.test(location)) return 'text/csv'
+  if (/\.parquet$/i.test(location)) return 'application/vnd.apache.parquet'
+  if (/\.ndjson$/i.test(location)) return 'application/x-ndjson'
+  return ''
 }
 
 /**
- * Load a relation: pick the first `relation-source` in a supported format and
- * read its rows.
- *
- * @param {object} structureDefinition - A relation definition.
- * @param {string} [canonical] - The canonical as written in the dependency, for diagnostics.
- * @returns {Promise<{kind: 'Relation', resource: {canonical: string, columns: object[], rows: object[], source: string, contentType: string, structureDefinition: object}}>}
- * @throws {Error} 422 when no source can be used or the data does not fit the columns.
+ * Resolve a `file:` url (or a bare relative path from configuration) to a
+ * path under `relationDir`, refusing anything that escapes the directory.
  */
-export async function loadRelation(structureDefinition, canonical = structureDefinition.url) {
-  const columns = relationColumns(structureDefinition)
+function localPath(location, relationDir, canonical) {
+  const rel = location.startsWith('file:') ? decodeURIComponent(location.replace(/^file:\/*/, '')) : location
+  const dir = path.resolve(relationDir)
+  const full = path.resolve(dir, rel)
+  if (full !== dir && !full.startsWith(dir + path.sep))
+    fail(422, 'security', `Relation '${canonical}': source '${location}' is outside the relation directory`)
+  return full
+}
+
+async function readSource(location, config, canonical) {
+  if (/^https?:/.test(location)) {
+    let res
+    try {
+      res = await fetch(location)
+    } catch (err) {
+      fail(422, 'exception', `Relation '${canonical}': source ${location} is unreachable (${err.message})`)
+    }
+    if (!res.ok) fail(422, 'not-found', `Relation '${canonical}': source ${location} answered ${res.status}`)
+    return res.text()
+  }
+  const full = localPath(location, config.relationDir || DEFAULT_RELATION_DIR, canonical)
+  if (!fs.existsSync(full))
+    fail(422, 'not-found', `Relation '${canonical}': source file ${full} does not exist`)
+  return fs.readFileSync(full, 'utf8')
+}
+
+/**
+ * Pick the data location of a relation: the runner's configuration
+ * (`config.relationSources[canonical]`, keyed by url or url|version) first,
+ * otherwise the first `relation-source` of the definition in a supported
+ * format. Embedded `data` is not accepted: data lives in files.
+ */
+function chooseSource(structureDefinition, canonical, config) {
+  const bound = config.relationSources?.[canonical] ?? config.relationSources?.[structureDefinition.url]
+  if (bound) {
+    const location = typeof bound === 'string' ? bound : bound.url
+    const contentType = (typeof bound === 'object' && bound.contentType) || guessContentType(location)
+    if (!SUPPORTED_CONTENT_TYPES.includes(contentType))
+      fail(
+        422,
+        'not-supported',
+        `Relation '${canonical}': configured source ${location} is '${contentType || '?'}', supported: ${SUPPORTED_CONTENT_TYPES.join(', ')}`,
+      )
+    return { location, contentType, origin: 'config' }
+  }
   const sources = relationSources(structureDefinition)
-  const source = sources.find((a) =>
-    SUPPORTED_CONTENT_TYPES.includes(
-      String(a.contentType || '')
-        .split(';')[0]
-        .trim(),
-    ),
+  for (const a of sources) {
+    if (a.data && !a.url)
+      fail(
+        422,
+        'not-supported',
+        `Relation '${canonical}': embedded relation-source data is not accepted; publish the file and reference it by url`,
+      )
+  }
+  const source = sources.find(
+    (a) => a.url && SUPPORTED_CONTENT_TYPES.includes(contentTypeOf(a) || guessContentType(a.url)),
   )
   if (!source) {
-    const offered = sources.map((a) => a.contentType || '?').join(', ') || 'none'
+    const offered = sources.map((a) => a.contentType || a.url || '?').join(', ') || 'none'
     fail(
       422,
       'not-supported',
       `Relation '${canonical}' offers no source in a supported format (offered: ${offered}; supported: ${SUPPORTED_CONTENT_TYPES.join(', ')})`,
     )
   }
-  const text = await attachmentText(source, canonical)
+  return {
+    location: source.url,
+    contentType: contentTypeOf(source) || guessContentType(source.url),
+    origin: 'definition',
+  }
+}
+
+/**
+ * Load a relation: choose its data file (configuration first, then the
+ * definition's `relation-source` entries) and read the rows.
+ *
+ * @param {object} structureDefinition - A relation definition.
+ * @param {string} [canonical] - The canonical as written in the dependency, for diagnostics and configuration lookup.
+ * @param {object} [config] - Server config: `relationDir`, `relationSources`.
+ * @returns {Promise<{kind: 'Relation', resource: {canonical: string, columns: object[], rows: object[], source: string, origin: string, contentType: string, structureDefinition: object}}>}
+ * @throws {Error} 422 when no source can be used or the data does not fit the columns.
+ */
+export async function loadRelation(structureDefinition, canonical = structureDefinition.url, config = {}) {
+  const columns = relationColumns(structureDefinition)
+  const { location, contentType, origin } = chooseSource(structureDefinition, canonical, config)
+  const text = await readSource(location, config, canonical)
   const rows = csvRows(text, columns, canonical)
   return {
     kind: 'Relation',
-    resource: {
-      canonical,
-      columns,
-      rows,
-      source: source.data ? 'embedded' : source.url,
-      contentType: source.contentType,
-      structureDefinition,
-    },
+    resource: { canonical, columns, rows, source: location, origin, contentType, structureDefinition },
   }
 }
 
@@ -279,6 +340,6 @@ export async function loadRelation(structureDefinition, canonical = structureDef
  */
 export function logRelationResolution(label, { resource }) {
   console.log(
-    `relation resolved: label=${label} canonical=${resource.canonical} source=${resource.source} format=${resource.contentType} columns=${resource.columns.length} rows=${resource.rows.length}`,
+    `relation resolved: label=${label} canonical=${resource.canonical} source=${resource.source} (${resource.origin}) format=${resource.contentType} columns=${resource.columns.length} rows=${resource.rows.length}`,
   )
 }

@@ -2,14 +2,20 @@
  * External relations on `$sql-run`: a `relatedArtifact[depends-on]` naming a
  * logical-model StructureDefinition derived from the SQL on FHIR `Relation`
  * base is exposed to the SQL as a table whose columns are the model's
- * `differential` elements, populated from the first `relation-source`
- * attachment in a supported format (CSV, embedded or by URL). The definition
- * may be stored on the server or supplied inline as a `context` entry.
+ * `differential` elements, populated from a CSV file: the first
+ * `relation-source` attachment in a supported format (`file:` under the
+ * server's relation directory, or `http(s):`), unless the server's
+ * configuration binds the canonical to a file of its own. Data is never
+ * embedded in the definition. The definition may be stored on the server or
+ * supplied inline as a `context` entry.
  *
  * Author: niquola
  */
 
 import http from 'http'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { startTestServer, parameters, post, sqlQueryLibrary } from './helpers.js'
 import { parseCsv, csvRows, relationColumns } from '../../src/server/relation.js'
 
@@ -18,7 +24,9 @@ let base
 let tx
 let csvServer
 let csvUrl
+let relationDir
 const port = 3013
+const BOUND = 'http://example.org/sd/bound'
 
 const RELATION_BASE = 'http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/Relation'
 const SOURCE_EXT = 'http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/relation-source'
@@ -26,7 +34,19 @@ const US_STATES = 'http://myig.org/StructureDefinition/us-states'
 const PATIENTS = 'http://myig.org/ViewDefinition/patient_demographics'
 
 beforeAll(async () => {
-  ;({ server, base, tx } = await startTestServer(port))
+  relationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sof-relations-'))
+  fs.copyFileSync(
+    new URL('../../metadata/relations/us_states.csv', import.meta.url),
+    path.join(relationDir, 'us_states.csv'),
+  )
+  fs.writeFileSync(path.join(relationDir, 'req.csv'), 'k,v\nx,\n,y\n')
+  fs.writeFileSync(path.join(relationDir, 'extra.csv'), 'k,other\nx,1\n')
+  fs.writeFileSync(path.join(relationDir, 'plain.csv'), 'k\nx\n')
+  fs.writeFileSync(path.join(relationDir, 'bound.csv'), 'k,v\nfrom-config,1\n')
+  ;({ server, base, tx } = await startTestServer(port, {
+    relationDir,
+    relationSources: { [BOUND]: 'bound.csv' },
+  }))
   csvServer = http.createServer((req, res) => {
     if (req.url === '/codes.csv') {
       res.writeHead(200, { 'Content-Type': 'text/csv' })
@@ -44,6 +64,7 @@ afterAll(async () => {
   server?.close()
   csvServer?.close()
   await tx?.close()
+  fs.rmSync(relationDir, { recursive: true, force: true })
 })
 
 async function run(library, context = []) {
@@ -90,7 +111,7 @@ function relation(url, columns, sources) {
   }
 }
 
-const embedded = (csv) => ({ contentType: 'text/csv', data: Buffer.from(csv).toString('base64') })
+const file = (name) => ({ contentType: 'text/csv', url: `file:${name}` })
 
 async function outcome(res) {
   const body = await res.json()
@@ -126,7 +147,7 @@ describe('CSV parsing', () => {
 })
 
 describe('Relation dependencies on $sql-run', () => {
-  test('a stored relation with an embedded CSV is exposed under its label', async () => {
+  test('a stored relation whose CSV is a file under the relation directory is exposed under its label', async () => {
     const res = await run(
       library('SELECT code, name, fips FROM states ORDER BY code', [[`${US_STATES}|1.0`, 'states']]),
     )
@@ -188,7 +209,7 @@ describe('Relation dependencies on $sql-run', () => {
         { name: 'k', type: 'string', min: 1 },
         { name: 'v', type: 'string' },
       ],
-      [embedded('k,v\nx,\n,y\n')],
+      [file('req.csv')],
     )
     const res = await run(library('SELECT * FROM t', [[url, 't']]), [sd])
     expect(res.status).toBe(422)
@@ -198,7 +219,7 @@ describe('Relation dependencies on $sql-run', () => {
 
   test('a CSV header with undeclared columns is rejected', async () => {
     const url = 'http://example.org/sd/extra'
-    const sd = relation(url, [{ name: 'k', type: 'string', min: 1 }], [embedded('k,other\nx,1\n')])
+    const sd = relation(url, [{ name: 'k', type: 'string', min: 1 }], [file('extra.csv')])
     const res = await run(library('SELECT * FROM t', [[url, 't']]), [sd])
     expect(res.status).toBe(422)
     expect((await outcome(res)).issue[0].diagnostics).toMatch(/not declared by the relation: other/)
@@ -229,10 +250,44 @@ describe('Relation dependencies on $sql-run', () => {
     expect((await outcome(res)).issue[0].diagnostics).toMatch(/answered 404/)
   })
 
+  test('embedded data is refused: the data must live in a file', async () => {
+    const url = 'http://example.org/sd/embedded'
+    const sd = relation(
+      url,
+      [{ name: 'k', type: 'string' }],
+      [{ contentType: 'text/csv', data: Buffer.from('k\nx\n').toString('base64') }],
+    )
+    const res = await run(library('SELECT * FROM t', [[url, 't']]), [sd])
+    expect(res.status).toBe(422)
+    expect((await outcome(res)).issue[0].diagnostics).toMatch(/embedded relation-source data is not accepted/)
+  })
+
+  test('a file: source may not escape the relation directory', async () => {
+    const url = 'http://example.org/sd/escape'
+    const sd = relation(url, [{ name: 'k', type: 'string' }], [file('../../etc/passwd')])
+    const res = await run(library('SELECT * FROM t', [[url, 't']]), [sd])
+    expect(res.status).toBe(422)
+    expect((await outcome(res)).issue[0].code).toBe('security')
+  })
+
+  test('server configuration binds a canonical to its own file and wins over the definition', async () => {
+    const sd = relation(
+      BOUND,
+      [
+        { name: 'k', type: 'string' },
+        { name: 'v', type: 'integer' },
+      ],
+      [{ contentType: 'text/csv', url: `${csvUrl}/missing.csv` }],
+    )
+    const res = await run(library('SELECT * FROM t', [[BOUND, 't']]), [sd])
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual([{ k: 'from-config', v: 1 }])
+  })
+
   test('a logical model not derived from Relation is not accepted as a dependency', async () => {
     const url = 'http://example.org/sd/plain'
     const sd = {
-      ...relation(url, [{ name: 'k', type: 'string' }], [embedded('k\nx\n')]),
+      ...relation(url, [{ name: 'k', type: 'string' }], [file('plain.csv')]),
       baseDefinition: 'http://hl7.org/fhir/StructureDefinition/Base',
     }
     const res = await run(library('SELECT * FROM t', [[url, 't']]), [sd])

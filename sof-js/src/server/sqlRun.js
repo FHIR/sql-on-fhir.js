@@ -119,6 +119,7 @@ export async function runOperation(config, params, { baseUrl, accept }) {
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
     lookupTerminology: (canonical, supplied) => resolveTerminology(canonical, config, supplied),
+    config,
   })
 
   const dataSource = makeDataSource(

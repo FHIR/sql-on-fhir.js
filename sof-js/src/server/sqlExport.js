@@ -257,6 +257,7 @@ export async function startExport(config, params, baseUrl) {
     context: paramsNamed(params, 'context').map(valueOf),
     lookup: (url, version) => lookupCanonical(config, url, version),
     lookupTerminology: (canonical, supplied) => resolveTerminology(canonical, config, supplied),
+    config,
   })
 
   // A conformant subject that cannot be processed (SQL syntax error, invalid
