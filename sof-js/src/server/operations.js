@@ -13,7 +13,7 @@ import { validateSqlLibraryShape } from './sqlLibraryValidation.js'
 import { inPatientCompartment } from './compartment.js'
 import { runLibrary, valueFieldForFhirType } from './sqlEngine.js'
 import { logTerminologyResolution } from './terminology.js'
-import { isRelation, logRelationResolution } from './relation.js'
+import { isRelation, logRelationResolution, referencedRelations } from './relation.js'
 import { issue, operationError, fail, combineErrors, parseCanonical, viewColumns } from './common.js'
 
 export {
@@ -465,17 +465,6 @@ export async function resolveGraph({
   lookupTerminology = null,
   lookupRelation = null,
 }) {
-  const relation = async (dep, structureDefinition) => {
-    if (!lookupRelation)
-      fail(
-        422,
-        'not-supported',
-        `Dependency '${dep.canonical}' is a Relation, which this operation cannot load`,
-      )
-    const artifact = await lookupRelation(structureDefinition, dep.canonical)
-    logRelationResolution(dep.label, artifact)
-    return artifact
-  }
   const contextByUrl = new Map()
   for (const entry of context) {
     const kind = contextKind(entry)
@@ -498,6 +487,29 @@ export async function resolveGraph({
 
   const resolved = new Map()
   const used = new Set()
+  const relation = async (dep, structureDefinition) => {
+    if (!lookupRelation)
+      fail(
+        422,
+        'not-supported',
+        `Dependency '${dep.canonical}' is a Relation, which this operation cannot load`,
+      )
+    const artifact = await lookupRelation(structureDefinition, dep.canonical)
+    logRelationResolution(dep.label, artifact)
+    // A foreign key names another Relation; it must be known to the server
+    // or supplied, so that a dangling reference is caught before SQL runs.
+    for (const target of referencedRelations(artifact.resource.columns)) {
+      const { url, version } = parseCanonical(target)
+      const known = contextByUrl.has(url) || resolved.has(target) || (await lookup(url, version))
+      if (!known)
+        fail(
+          422,
+          'not-found',
+          `Relation '${dep.canonical}' references '${target}' as a foreign key, which is neither supplied as a context entry nor known to the server`,
+        )
+    }
+    return artifact
+  }
   const worklist = subjects.flatMap((s) =>
     dependenciesOf(s.kind ? s : { kind: artifactKind(s), resource: s }),
   )

@@ -51,8 +51,8 @@ OperationDefinitions (`metadata/OperationDefinition/sql-run.json` and
 
 `GET` or `POST /$sql-run`. Supported parameters: the three subject forms,
 `parameters` (bound by name to `Library.parameter`, SQL subjects only),
-`context` (inline ViewDefinitions, SQLViews, ValueSets and ConceptMaps matched
-to `relatedArtifact` dependencies by canonical URL), `resource` (inline FHIR
+`context` (inline ViewDefinitions, SQLViews, ValueSets, ConceptMaps and
+Relations matched to `relatedArtifact` dependencies by canonical URL), `resource` (inline FHIR
 resources, Bundles unwrapped, ViewDefinition subjects only), `_format`,
 `header`, `patient`, `group`, `_since` and `_limit`. Formats: `csv`, `json`,
 `ndjson` (default) and `fhir`; `Accept: application/fhir+json` returns the flat
@@ -211,6 +211,51 @@ Configuration (environment variables):
 | `TERMINOLOGY_SERVER_URL`  | `https://tx.fhir.org/r5` | Base URL of the FHIR R5 terminology server           |
 | `TERMINOLOGY_MAX_MEMBERS` | `100000`                 | Maximum members per value set before a `422` is sent |
 
+### Relation dependencies (external tables)
+
+A `depends-on` entry may also name a **Relation**: a logical-model
+`StructureDefinition` derived from
+`http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/Relation` that
+describes a table the server does not produce from FHIR data — reference data
+such as a list of states, an OMOP vocabulary, a cohort list. This follows the
+discussion draft at
+<https://gist.github.com/niquola/84d776f18e7aaf4b6780a1508ee63884> and is not
+yet in the specification.
+
+The `differential` elements are the columns: a leaf `path`, a FHIR primitive
+`type` (or the canonical of another Relation, which makes the column a foreign
+key that must resolve to a known Relation), `min: 1` for NOT NULL, no
+cardinality meaning `0..1`; `max` other than `1` is refused, as are
+non-primitive types. An element `mapping` with `identity: sql` names the SQL
+storage type; the `primary-key` extension marks the key.
+
+The data is a file, never embedded. The definition offers it through a
+repeatable `relation-source` extension carrying an Attachment `url` and
+`contentType`, one per format; the server takes the first it can read:
+`text/csv` (RFC 4180, header row), `application/x-ndjson` (one object per
+line) or `application/vnd.apache.parquet`. A `file:` url is resolved under the
+relation directory and may not escape it; an `http(s):` url is fetched under
+a host allow-list, a size cap and a timeout. Runner configuration wins over
+the definition: `relationSources` binds a canonical to a file of the server's
+own. Cells are typed by the column (`integer`, `decimal`, `boolean`, text) and
+a row that leaves a required column empty, or a source with undeclared
+columns, is a `422`.
+
+Resolution order: a Relation supplied in `context` whose `url` matches, then
+one stored in `metadata/StructureDefinition/`. Each load writes one log line
+with the canonical, the file, its format and sha256 and the row count; a
+`$sql-export` manifest repeats this under `dependency`, so a result can be
+traced to the exact data file. Stored Relations are listed at
+`GET /StructureDefinition`.
+
+Configuration (passed to `startServer`):
+
+| Option            | Default               | Purpose                                                          |
+| ----------------- | --------------------- | ---------------------------------------------------------------- |
+| `relationDir`     | `metadata/relations/` | Directory `file:` sources are read from                          |
+| `relationSources` | `{}`                  | Canonical → file or url, overriding the definition's sources     |
+| `relationFetch`   | see below             | `allowHosts` (null = any), `maxBytes` (50 MiB), `timeoutMs` (30 s) |
+
 ### Server extensions
 
 `POST /ViewDefinition/$validate` and `POST /Library/$validate` validate a
@@ -230,3 +275,6 @@ tests (`ghost-dep-query`, `cycle-view-a`/`cycle-view-b`, `parameterised-view`).
 expansion, used by `cardiovascular-patients`.
 `metadata/ConceptMap/sct-to-icd10.json` is an illustrative SNOMED CT to ICD-10
 map, including a `noMap` element, used by `conditions-to-icd10`.
+`metadata/StructureDefinition/` holds two Relations: `us-states` (csv under
+`metadata/relations/`, offered also as parquet) and `omop-concept` (a parquet
+subset of the OMOP `concept` table with a `BIGINT` primary key).

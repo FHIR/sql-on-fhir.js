@@ -12,12 +12,12 @@
       {
         "name": "$sql-run",
         "definition": "http://sql-on-fhir.org/OperationDefinition/sql-run",
-        "documentation": "Execute a ViewDefinition, SQLQuery Library or SQLView Library and return the result in the requested output format. Supported output formats: csv, json, ndjson, fhir. Binary envelope representation is supported for csv, json and ndjson. The parquet and source parameters are not supported."
+        "documentation": "Execute a ViewDefinition, SQLQuery Library or SQLView Library and return the result in the requested output format. Supported output formats: csv, json, ndjson, fhir. Binary envelope representation is supported for csv, json and ndjson. The parquet and source parameters are not supported. SQL dependencies (relatedArtifact depends-on) may be ViewDefinitions, SQLView Libraries, ValueSets, ConceptMaps or Relations (logical-model StructureDefinitions derived from http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/Relation whose data is a csv, ndjson or parquet file)."
       },
       {
         "name": "$sql-export",
         "definition": "http://sql-on-fhir.org/OperationDefinition/sql-export",
-        "documentation": "Export one or more ViewDefinitions, SQLQuery Libraries and SQLView Libraries as a single asynchronous job. Supported output formats: csv, json, ndjson. The parquet and source parameters are not supported."
+        "documentation": "Export one or more ViewDefinitions, SQLQuery Libraries and SQLView Libraries as a single asynchronous job. Supported output formats: csv, json, ndjson. The parquet and source parameters are not supported. Relation dependencies are supported as for $sql-run; the manifest records each Relation's data file and sha256."
       }
     ],
     "resource": [
@@ -45,6 +45,14 @@
             "name": "$validate",
             "definition": "http://sql-on-fhir.org/OperationDefinition/Library-$validate"
           }
+        ]
+      },
+      {
+        "type": "StructureDefinition",
+        "documentation": "Relations: logical models derived from http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/Relation that describe external tables usable as SQL dependencies.",
+        "interaction": [
+          { "code": "read" },
+          { "code": "search-type" }
         ]
       },
       {

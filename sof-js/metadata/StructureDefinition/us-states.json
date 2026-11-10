@@ -14,15 +14,15 @@
     {
       "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/relation-source",
       "valueAttachment": {
-        "contentType": "application/vnd.apache.parquet",
-        "url": "https://myig.org/data/us_states.parquet"
+        "contentType": "text/csv",
+        "url": "file:us_states.csv"
       }
     },
     {
       "url": "http://hl7.org/fhir/uv/sql-on-fhir/StructureDefinition/relation-source",
       "valueAttachment": {
-        "contentType": "text/csv",
-        "url": "file:us_states.csv"
+        "contentType": "application/vnd.apache.parquet",
+        "url": "https://myig.org/data/us_states.parquet"
       }
     }
   ],
