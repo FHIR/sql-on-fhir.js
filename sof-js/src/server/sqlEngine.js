@@ -260,6 +260,15 @@ async function materialiseDependencies(library, db, ctx, stack) {
         columns.map((c) => c.name),
         await ctx.evaluateView(view),
       )
+    } else if (artifact.kind === 'Relation') {
+      const columns = artifact.resource.columns
+      await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(columns)})`)
+      await insertRows(
+        db,
+        dep.label,
+        columns.map((c) => c.name),
+        artifact.resource.rows,
+      )
     } else if (artifact.kind in TERMINOLOGY_COLUMNS) {
       const columns = TERMINOLOGY_COLUMNS[artifact.kind]
       await dbRun(db, `CREATE TABLE "${dep.label}" (${declare(columns)})`)

@@ -342,7 +342,7 @@ describe('resolveGraph', () => {
       issues: [
         expect.objectContaining({
           expression: ['context'],
-          diagnostics: expect.stringContaining('ViewDefinition, SQLView, ValueSet or ConceptMap'),
+          diagnostics: expect.stringContaining('ViewDefinition, SQLView, ValueSet, ConceptMap or Relation'),
         }),
       ],
     })

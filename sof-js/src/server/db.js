@@ -19,6 +19,7 @@ export const CANONICAL_TYPES = [
   'ValueSet',
   'ConceptMap',
   'Library',
+  'StructureDefinition',
   'Group',
 ]
 

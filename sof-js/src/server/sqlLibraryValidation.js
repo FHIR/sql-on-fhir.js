@@ -16,6 +16,7 @@
 
 import { search } from './db.js'
 import { findStored } from './terminology.js'
+import { isRelation } from './relation.js'
 
 // ---------------------------------------------------------------------------
 // Issue helpers
@@ -244,6 +245,12 @@ async function resolveDependencyTarget(config, ref) {
     if (resource) return { kind, resource }
   }
 
+  const url = (ref || '').split('|')[0]
+  const relation = (await searchFn(config, 'StructureDefinition', 1000))
+    .filter(isRelation)
+    .find((r) => r.url === url)
+  if (relation) return { kind: 'Relation', resource: relation }
+
   return null
 }
 
@@ -284,7 +291,7 @@ export async function validateSqlLibrary(library, config) {
       issues.push(
         warningIssue(
           'not-found',
-          `Dependency '${ref}' could not be resolved to a stored ViewDefinition, Library, ValueSet or ConceptMap; a ValueSet or ConceptMap may still be resolved by the terminology server at run time.`,
+          `Dependency '${ref}' could not be resolved to a stored ViewDefinition, Library, ValueSet, ConceptMap or Relation; a ValueSet or ConceptMap may still be resolved by the terminology server at run time.`,
           expr,
         ),
       )

@@ -13,6 +13,7 @@ import { validateSqlLibraryShape } from './sqlLibraryValidation.js'
 import { inPatientCompartment } from './compartment.js'
 import { runLibrary, valueFieldForFhirType } from './sqlEngine.js'
 import { logTerminologyResolution } from './terminology.js'
+import { isRelation, loadRelation, logRelationResolution } from './relation.js'
 import { issue, operationError, fail, combineErrors, parseCanonical, viewColumns } from './common.js'
 
 export {
@@ -317,11 +318,12 @@ export async function lookupCanonical(config, url, version) {
   const candidates = [
     ...(await searchAll(config, 'ViewDefinition')),
     ...(await searchAll(config, 'Library')),
+    ...(await searchAll(config, 'StructureDefinition')).filter(isRelation),
   ].filter((r) => r.url === url && (version === null || r.version === version))
   if (candidates.length === 0) return null
   candidates.sort((a, b) => compareVersions(b.version, a.version))
   const resource = candidates[0]
-  return { kind: artifactKind(resource), resource }
+  return { kind: isRelation(resource) ? 'Relation' : artifactKind(resource), resource }
 }
 
 /**
@@ -421,13 +423,14 @@ function dependenciesOf(artifact) {
 }
 
 // The kinds of artifact a dependency, and so a context entry, may resolve to.
-const DEPENDENCY_KINDS = ['ViewDefinition', 'SQLView', 'ValueSet', 'ConceptMap']
+const DEPENDENCY_KINDS = ['ViewDefinition', 'SQLView', 'ValueSet', 'ConceptMap', 'Relation']
 
 // Classify a context entry: a subject kind, or a terminology artifact.
 function contextKind(entry) {
   const kind = artifactKind(entry)
   if (kind) return kind
   if (entry?.resourceType === 'ValueSet' || entry?.resourceType === 'ConceptMap') return entry.resourceType
+  if (isRelation(entry)) return 'Relation'
   return null
 }
 
@@ -463,7 +466,7 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
       fail(
         400,
         'invalid',
-        `Context entry '${entry.url}' is not a ViewDefinition, SQLView, ValueSet or ConceptMap`,
+        `Context entry '${entry.url}' is not a ViewDefinition, SQLView, ValueSet, ConceptMap or Relation`,
         'context',
       )
     }
@@ -492,11 +495,18 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
       if (supplied.kind === 'ValueSet' || supplied.kind === 'ConceptMap') {
         artifact = await lookupTerminology(dep.canonical, supplied.resource)
         logTerminologyResolution(dep.label, artifact)
+      } else if (supplied.kind === 'Relation') {
+        artifact = await loadRelation(supplied.resource, dep.canonical)
+        logRelationResolution(dep.label, artifact)
       } else {
         artifact = supplied
       }
     } else {
       artifact = await lookup(dep.url, dep.version)
+      if (artifact?.kind === 'Relation') {
+        artifact = await loadRelation(artifact.resource, dep.canonical)
+        logRelationResolution(dep.label, artifact)
+      }
     }
     if (!artifact && lookupTerminology) {
       try {
@@ -507,7 +517,7 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
         missing.push(
           issue(
             'not-found',
-            `Dependency '${dep.canonical}' was neither supplied as a context entry nor resolvable by the server as a ViewDefinition, SQLView, ValueSet or ConceptMap: ${err.message}`,
+            `Dependency '${dep.canonical}' was neither supplied as a context entry nor resolvable by the server as a ViewDefinition, SQLView, ValueSet, ConceptMap or Relation: ${err.message}`,
           ),
         )
         continue
@@ -526,7 +536,7 @@ export async function resolveGraph({ subjects, context, lookup, lookupTerminolog
       fail(
         422,
         'invalid',
-        `Dependency '${dep.url}' resolved to a ${artifact.kind || 'resource'} rather than a ViewDefinition, SQLView, ValueSet or ConceptMap`,
+        `Dependency '${dep.url}' resolved to a ${artifact.kind || 'resource'} rather than a ViewDefinition, SQLView, ValueSet, ConceptMap or Relation`,
       )
     }
     resolved.set(dep.canonical, artifact)
