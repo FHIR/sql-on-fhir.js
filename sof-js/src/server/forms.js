@@ -536,7 +536,7 @@ async function renderSubjectRow(config) {
       ${field('Stored subject (subjectReference)', await subjectSelect(config, 'subjectStored[]'))}
       ${field('subjectCanonical', `<input type="text" name="subjectCanonical[]" class="w-full" placeholder="http://example.org/ViewDefinition/x|1.0"/>`)}
       ${field('subjectResource', jsonTextarea('subjectResource[]', { rows: 4, placeholder: 'Inline ViewDefinition or Library JSON' }))}
-      ${field('parameters', jsonTextarea('subjectParameters[]', { rows: 3, placeholder: '{"resourceType": "Parameters", "parameter": [...]} (Library subjects only)' }))}
+      ${field('parameters', jsonTextarea('subjectParameters[]', { rows: 3, placeholder: '{"resourceType": "Parameters", "parameter": [...]} (SQLQuery subjects only)' }))}
     </div>`)
 }
 

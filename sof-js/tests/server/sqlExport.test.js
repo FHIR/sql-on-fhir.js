@@ -9,7 +9,15 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { startTestServer, parameters, post, sqlQueryLibrary, patientView, KNOWN_PATIENTS } from './helpers.js'
+import {
+  startTestServer,
+  parameters,
+  post,
+  sqlQueryLibrary,
+  sqlViewLibrary,
+  patientView,
+  KNOWN_PATIENTS,
+} from './helpers.js'
 import { sctToIcd10Map } from './conceptMapFixtures.js'
 
 let server
@@ -404,6 +412,25 @@ describe('$sql-export rejected requests', () => {
     const body = await outcome(res)
     expect(body.issue[0].code).toBe('invalid')
     expect(body.issue[0].expression[0]).toContain('parameters')
+  })
+
+  test('parameters on a SQLView subject is 400 invalid', async () => {
+    // A SQLView declares no parameters, so `parameters` is rejected outright.
+    // The resource is left empty to show that it is the presence of
+    // `parameters` that is rejected, not an undeclared name within it.
+    const view = sqlViewLibrary('https://example.org/Library/all_patients', 'SELECT id FROM p', [
+      { resource: VIEW_CANONICAL, label: 'p' },
+    ])
+    const res = await kickOff([
+      subject([
+        { name: 'subjectResource', resource: view },
+        { name: 'parameters', resource: parameters([]) },
+      ]),
+    ])
+    expect(res.status).toBe(400)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
+    expect(body.issue[0].expression).toEqual(['subject[0].parameters'])
   })
 
   test('_format=fhir is 400 invalid on export', async () => {

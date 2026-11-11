@@ -102,13 +102,8 @@ export async function runOperation(config, params, { baseUrl, accept }) {
 
   const parametersResource = value(params, 'parameters')
   const isView = subject.kind === 'ViewDefinition'
-  if (parametersResource !== undefined && isView) {
-    fail(
-      400,
-      'invalid',
-      "'parameters' cannot be supplied where the subject is a ViewDefinition",
-      'parameters',
-    )
+  if (parametersResource !== undefined && subject.kind !== 'SQLQuery') {
+    fail(400, 'invalid', "'parameters' can only be supplied where the subject is a SQLQuery", 'parameters')
   }
   if (paramsNamed(params, 'resource').length > 0 && !isView) {
     fail(400, 'invalid', "'resource' can only be supplied where the subject is a ViewDefinition", 'resource')

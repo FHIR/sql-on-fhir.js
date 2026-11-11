@@ -545,6 +545,27 @@ describe('$sql-run conditional parameters', () => {
     expect(body.issue[0].expression).toEqual(['parameters'])
   })
 
+  test('parameters with a SQLView subject is 400 invalid naming parameters', async () => {
+    // A SQLView declares no parameters, so `parameters` is rejected outright.
+    // The resource is left empty to show that it is the presence of
+    // `parameters` that is rejected, not an undeclared name within it.
+    const view = sqlViewLibrary('https://example.org/Library/all_patients', 'SELECT id FROM p', [
+      { resource: VIEW_CANONICAL, label: 'p' },
+    ])
+    const res = await post(
+      base,
+      '/$sql-run',
+      parameters([
+        { name: 'subjectResource', resource: view },
+        { name: 'parameters', resource: parameters([]) },
+      ]),
+    )
+    expect(res.status).toBe(400)
+    const body = await outcome(res)
+    expect(body.issue[0].code).toBe('invalid')
+    expect(body.issue[0].expression).toEqual(['parameters'])
+  })
+
   test('parameters bind by name to a stored SQLQuery', async () => {
     const res = await post(
       base,

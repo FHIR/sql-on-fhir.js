@@ -167,11 +167,11 @@ async function prepareSubject(config, part, index, baseUrl) {
   )
   const parametersResource = value(part, 'parameters')
   if (parametersResource !== undefined) {
-    if (subject.kind === 'ViewDefinition') {
+    if (subject.kind !== 'SQLQuery') {
       fail(
         400,
         'invalid',
-        "'parameters' cannot be supplied where the subject is a ViewDefinition",
+        "'parameters' can only be supplied where the subject is a SQLQuery",
         `${prefix}parameters`,
       )
     }
