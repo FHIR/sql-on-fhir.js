@@ -22,6 +22,10 @@ The server tests under `tests/server/` start the server on a free port; the
 first run downloads a small Synthea data set into `db.sqlite`, which is reused
 afterwards.
 
+Views in `../tests` that call `memberOf` resolve value sets against the ValueSet
+fixtures in their own file, which `tests/fixtureTerminologyServer.js` serves to
+fhirpath.js as a local terminology server.
+
 ## Running the server
 
 ```bash
@@ -210,6 +214,29 @@ Configuration (environment variables):
 | ------------------------- | ------------------------ | ---------------------------------------------------- |
 | `TERMINOLOGY_SERVER_URL`  | `https://tx.fhir.org/r5` | Base URL of the FHIR R5 terminology server           |
 | `TERMINOLOGY_MAX_MEMBERS` | `100000`                 | Maximum members per value set before a `422` is sent |
+
+### `memberOf` in ViewDefinitions
+
+A ViewDefinition may call the FHIRPath `memberOf` function, as the Terminology
+Dependent View Definition profile allows. The engine uses the `memberOf`
+implementation of [fhirpath.js](https://github.com/HL7/fhirpath.js), which asks
+the terminology server at `TERMINOLOGY_SERVER_URL` through
+`ValueSet/$validate-code`. For a `code` or `string` input it first reads the
+value set with `ValueSet?url=…` to find its single code system. Value sets
+supplied in `context` or stored in `metadata/ValueSet/` are not consulted. A
+value set that the terminology server cannot resolve gives an empty result, and
+so does a terminology server that fails or cannot be reached. No error is
+reported in either case. fhirpath.js sets no timeout on these requests, so a
+terminology server that accepts a connection but does not answer delays the
+evaluation until the connection times out.
+
+This does not meet the profile's requirement that every call naming the same
+value set sees the same membership, within one evaluation (`termview-3`) and
+within a job (`termview-4`). Each distinct code is checked by its own request,
+fhirpath.js caches the responses, failures included, for an hour within the
+process, and the result is independent of the expansion used for a SQLQuery or
+SQLView ValueSet dependency. A change to a value set on the terminology server
+during a job can therefore be seen by some calls and not by others.
 
 ### Server extensions
 

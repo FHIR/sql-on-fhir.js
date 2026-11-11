@@ -301,8 +301,13 @@ function describeFailure(status, outcome, text) {
   return `HTTP ${status}: ${details.length > 0 ? details.join('; ') : text.slice(0, 500)}`
 }
 
-// The terminology server base URL, without a trailing slash.
-function serverBase(config) {
+/**
+ * The terminology server base URL, without a trailing slash.
+ *
+ * @param {object} config - Server config carrying `terminologyServerUrl`.
+ * @returns {string} the base URL.
+ */
+export function serverBase(config) {
   return config.terminologyServerUrl.replace(/\/+$/, '')
 }
 

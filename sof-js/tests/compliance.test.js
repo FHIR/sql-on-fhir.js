@@ -1,6 +1,7 @@
 import fs from 'fs'
-import { afterAll, describe, expect, test } from '@jest/globals'
+import { afterAll, beforeAll, describe, expect, test } from '@jest/globals'
 import { evaluate } from '../src/index.js'
+import { startFixtureTerminologyServer } from './fixtureTerminologyServer.js'
 
 function isEqual(a, b) {
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -81,13 +82,13 @@ function arraysMatch(arr1, arr2) {
   }
 }
 
-function runThrowingTest(test, resources) {
+async function runThrowingTest(test, resources) {
   let report = test
   report.name = test.title
   delete test.title
 
   try {
-    const result = evaluate(test.view, resources)
+    const result = await evaluate(test.view, resources)
     report = {
       ...report,
       result: {
@@ -107,7 +108,7 @@ function runThrowingTest(test, resources) {
   }
 }
 
-function runTest(test, resources) {
+async function runTest(test, resources, terminologyUrl) {
   if (test.expectError) {
     return runThrowingTest(test)
   }
@@ -116,7 +117,7 @@ function runTest(test, resources) {
   delete test.title
 
   try {
-    const result = evaluate(test.view, resources)
+    const result = await evaluate(test.view, resources, true, { terminologyUrl })
 
     if (test.expectCount) {
       const passed = result.length === test.expectCount
@@ -157,21 +158,35 @@ function runTest(test, resources) {
 
 const testDirectory = '../tests/'
 const files = fs.readdirSync(testDirectory)
+const testGroups = Object.fromEntries(files.map((f) => [f, JSON.parse(fs.readFileSync(testDirectory + f))]))
 global.testResults = {}
 
-afterAll(() => {
+// Views that call memberOf resolve value sets against the ValueSet fixtures in
+// their own file, served by a local terminology endpoint.
+let terminology
+
+beforeAll(async () => {
+  terminology = await startFixtureTerminologyServer(
+    Object.fromEntries(
+      files.map((f) => [f, testGroups[f].resources.filter((r) => r.resourceType === 'ValueSet')]),
+    ),
+  )
+})
+
+afterAll(async () => {
+  await terminology?.close()
   fs.writeFileSync('../test_report/public/test-results.json', JSON.stringify(global.testResults))
 })
 
 files.forEach((f) => {
-  const testGroup = JSON.parse(fs.readFileSync(testDirectory + f))
+  const testGroup = testGroups[f]
   const resources = testGroup.resources
 
   describe(f, () => {
     global.testResults[f] = { tests: [] }
     testGroup.tests.forEach((testCase) => {
       test(testCase.title, async () => {
-        const report = runTest(testCase, resources)
+        const report = await runTest(testCase, resources, terminology.urlFor(f))
         if (!report.result.passed) {
           console.error('Test failed: ', report)
         }

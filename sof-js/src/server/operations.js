@@ -659,9 +659,9 @@ export function makeDataSource(config, { patientRefs = null, since = null }, inl
 // Execution
 // ---------------------------------------------------------------------------
 
-function evaluateView(viewDefinition, resources, expression) {
+async function evaluateView(viewDefinition, resources, expression, terminologyUrl) {
   try {
-    return evaluate(viewDefinition, resources, false)
+    return await evaluate(viewDefinition, resources, false, { terminologyUrl })
   } catch (err) {
     throw operationError(422, [
       issue('invalid', `ViewDefinition could not be evaluated: ${err.message}`, expression),
@@ -679,6 +679,8 @@ function evaluateView(viewDefinition, resources, expression) {
  * @param {(resourceType: string) => Promise<object[]>} options.dataSource - Filtered resource supplier.
  * @param {object|null} [options.parametersResource] - Bound parameter values for a SQL subject.
  * @param {string} [options.expression='subject'] - Expression used in issues raised by execution.
+ * @param {string} [options.terminologyUrl] - Terminology server base URL that `memberOf` in a ViewDefinition
+ *   resolves value sets against.
  * @param {boolean} [options.prepareOnly=false] - Validate a SQL subject by preparing its statement over its
  *   materialised dependencies instead of executing it; ViewDefinition subjects are still evaluated.
  * @returns {Promise<{rows: object[], columns: string[], valueFields: object}>} rows, column order and per-column value fields.
@@ -691,10 +693,11 @@ export async function executeSubject({
   parametersResource = null,
   expression = 'subject',
   prepareOnly = false,
+  terminologyUrl,
 }) {
   if (subject.kind === 'ViewDefinition') {
     const view = subject.resource
-    const rows = evaluateView(view, await dataSource(view.resource), expression)
+    const rows = await evaluateView(view, await dataSource(view.resource), expression, terminologyUrl)
     const columns = viewColumns(view)
     const valueFields = {}
     for (const c of columns) valueFields[c.name] = valueFieldForFhirType(c.type)
@@ -704,7 +707,8 @@ export async function executeSubject({
     library: subject.resource,
     parametersResource,
     resolveDependency: (canonical) => graph.get(canonical) || null,
-    evaluateView: async (view) => evaluateView(view, await dataSource(view.resource), expression),
+    evaluateView: async (view) =>
+      evaluateView(view, await dataSource(view.resource), expression, terminologyUrl),
     expression,
     prepareOnly,
   })

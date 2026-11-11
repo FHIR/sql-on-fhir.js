@@ -113,16 +113,26 @@
      return { rows: rows, cols: columns };
  }
 
- $: {
+ // Each edit starts an evaluation; only the latest one updates the output.
+ let latest = 0;
+
+ async function run(text) {
+     const current = ++latest;
      try {
-         error = null;
-         eval('v = ' + viewdef)
-         result = tabelize(v, evaluate(v, data, false));
-         /* tabelize(result) */
+         eval('v = ' + text)
+         const rows = await evaluate(v, data, false);
+         if (current === latest) {
+             error = null;
+             result = tabelize(v, rows);
+         }
      } catch(e) {
-         error = e.toString();
+         if (current === latest) {
+             error = e.toString();
+         }
      }
  }
+
+ $: run(viewdef);
 </script>
 
 <div id="api-playground" class="flex-grow">

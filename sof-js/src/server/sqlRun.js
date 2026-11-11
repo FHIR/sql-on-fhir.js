@@ -7,7 +7,7 @@
  */
 
 import { getBaseUrl } from './utils.js'
-import { resolveTerminology } from './terminology.js'
+import { resolveTerminology, serverBase } from './terminology.js'
 import {
   RUN_FORMATS,
   MEDIA_TYPES,
@@ -131,6 +131,7 @@ export async function runOperation(config, params, { baseUrl, accept }) {
     graph,
     dataSource,
     parametersResource: parametersResource || null,
+    terminologyUrl: serverBase(config),
   })
 
   const limit = value(params, '_limit')
