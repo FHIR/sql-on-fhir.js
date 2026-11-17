@@ -1,0 +1,172 @@
+{
+  "title": "contained",
+  "description": "Accessing data within contained resources using FHIRPath, without extracting them into independent resources.",
+  "fhirVersion": ["5.0.0", "4.0.1"],
+  "resources": [
+    {
+      "resourceType": "Organization",
+      "id": "org1",
+      "contained": [
+        {
+          "resourceType": "Endpoint",
+          "id": "ep1",
+          "status": "active",
+          "identifier": [
+            { "system": "http://example.org/endpoints", "value": "ep1-id" }
+          ],
+          "address": "https://ep1.example.org"
+        },
+        {
+          "resourceType": "Practitioner",
+          "id": "pr1",
+          "name": [{ "family": "Smith" }]
+        },
+        {
+          "resourceType": "Endpoint",
+          "id": "ep2",
+          "status": "active",
+          "identifier": [
+            { "system": "http://example.org/endpoints", "value": "ep2-id" }
+          ],
+          "address": "https://ep2.example.org"
+        }
+      ],
+      "name": "Organisation with contained resources",
+      "endpoint": [{ "reference": "#ep1" }, { "reference": "#ep2" }]
+    },
+    {
+      "resourceType": "Organization",
+      "id": "org2",
+      "name": "Organisation without contained resources"
+    },
+    {
+      "resourceType": "Endpoint",
+      "id": "ep-top",
+      "status": "active",
+      "identifier": [
+        { "system": "http://example.org/endpoints", "value": "ep-top-id" }
+      ],
+      "address": "https://top.example.org"
+    }
+  ],
+  "tests": [
+    {
+      "title": "forEach over contained resources of one type",
+      "description": "ofType selects only the contained Endpoint resources, ignoring the contained Practitioner.",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Organization",
+        "status": "active",
+        "select": [
+          {
+            "column": [{ "name": "org_id", "path": "id", "type": "id" }]
+          },
+          {
+            "forEach": "contained.ofType(Endpoint)",
+            "column": [
+              { "name": "endpoint_id", "path": "id", "type": "id" },
+              {
+                "name": "endpoint_identifier",
+                "path": "identifier.value",
+                "type": "string"
+              },
+              { "name": "address", "path": "address", "type": "url" }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        {
+          "org_id": "org1",
+          "endpoint_id": "ep1",
+          "endpoint_identifier": "ep1-id",
+          "address": "https://ep1.example.org"
+        },
+        {
+          "org_id": "org1",
+          "endpoint_id": "ep2",
+          "endpoint_identifier": "ep2-id",
+          "address": "https://ep2.example.org"
+        }
+      ]
+    },
+    {
+      "title": "forEachOrNull over contained resources",
+      "description": "A resource with no contained resources produces a single row with null columns.",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Organization",
+        "status": "active",
+        "select": [
+          {
+            "column": [{ "name": "org_id", "path": "id", "type": "id" }]
+          },
+          {
+            "forEachOrNull": "contained.ofType(Endpoint)",
+            "column": [{ "name": "endpoint_id", "path": "id", "type": "id" }]
+          }
+        ]
+      },
+      "expect": [
+        { "org_id": "org1", "endpoint_id": "ep1" },
+        { "org_id": "org1", "endpoint_id": "ep2" },
+        { "org_id": "org2", "endpoint_id": null }
+      ]
+    },
+    {
+      "title": "column path into a contained resource",
+      "description": "A column can read contained data directly, without unnesting.",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Organization",
+        "status": "active",
+        "select": [
+          {
+            "column": [
+              { "name": "org_id", "path": "id", "type": "id" },
+              {
+                "name": "practitioner_family",
+                "path": "contained.ofType(Practitioner).name.family",
+                "type": "string"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": [
+        { "org_id": "org1", "practitioner_family": "Smith" },
+        { "org_id": "org2", "practitioner_family": null }
+      ]
+    },
+    {
+      "title": "where filter on contained data",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Organization",
+        "status": "active",
+        "select": [
+          {
+            "column": [{ "name": "org_id", "path": "id", "type": "id" }]
+          }
+        ],
+        "where": [{ "path": "contained.ofType(Endpoint).exists()" }]
+      },
+      "expect": [{ "org_id": "org1" }]
+    },
+    {
+      "title": "view rows exclude contained resources",
+      "description": "A view of Endpoint resources includes top-level Endpoint resources but not Endpoint resources contained within an Organization.",
+      "tags": ["shareable"],
+      "view": {
+        "resource": "Endpoint",
+        "status": "active",
+        "select": [
+          {
+            "column": [{ "name": "id", "path": "id", "type": "id" }]
+          }
+        ]
+      },
+      "expect": [{ "id": "ep-top" }]
+    }
+  ]
+}
