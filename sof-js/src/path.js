@@ -28,24 +28,18 @@ function getReferenceKey(nodes, opts) {
   })
 }
 
-function ofType(ctx, nodes, a1, a2, a3) {
-  console.log('of type nodes', nodes, a1, a2, a3)
-  return 'ups'
-}
-
 function rewrite_path(path) {
   if (path.startsWith('$this')) {
     path = 'identity()' + path.slice('$this'.length)
   }
-  const ofTypeRegex = /\.ofType\(([^)]+)\)/g
-  let match
-  // HACK: fhirpath.js only knows that `Observation.value.ofType(Quantity)`
-  // refers to `Observation.valueQuantity` if load FHIR models... which
-  // we otherwise don't need. So here, just wrestle into explicit properties.
-  while ((match = ofTypeRegex.exec(path)) !== null) {
-    const replacement = match[1].charAt(0).toUpperCase() + match[1].slice(1)
-    path = path.replace(match[0], `${replacement}`)
-  }
+  // HACK: fhirpath.js only resolves `Observation.value.ofType(Quantity)` to
+  // `Observation.valueQuantity` against the loaded R4 model, which misses R5
+  // choice types. So rewrite choice types into explicit properties. Resources
+  // (`contained`, `Bundle.entry.resource`) are left to native ofType, which
+  // matches on resourceType.
+  path = path.replace(/(?<!\b(?:contained|resource))\.ofType\(([^)]+)\)/g, (_, type) => {
+    return type.charAt(0).toUpperCase() + type.slice(1)
+  })
   return path
 }
 
